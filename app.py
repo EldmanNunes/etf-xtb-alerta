@@ -3,6 +3,11 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime
+import os
+from fpdf import FPDF
 
 # Configuração da página
 st.set_page_config(page_title="ETF Tracker & Rebalancer XTB", layout="wide", page_icon="📊")
@@ -15,8 +20,6 @@ ETF_MAP = {
     "XDEQ - World Quality": {"ticker": "XDEQ.DE", "target_pct": 0.30, "nome": "World Quality"},
     "IBCI - Inflation Linked": {"ticker": "IBCI.DE", "target_pct": 0.45, "nome": "Inflation Linked"}
 }
-
-TICKER_TO_KEY = {meta["ticker"]: key for key, meta in ETF_MAP.items()}
 
 # Sidebar - Configurações Gerais
 st.sidebar.header("⚙️ Configurações")
@@ -32,6 +35,10 @@ mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
 mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
 mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
 mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
+
+# Credenciais de E-mail
+GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", "eldman.nunes@gmail.com"))
+GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
 
 # Cache de Download de Dados
 @st.cache_data(ttl=3600)
@@ -69,11 +76,68 @@ def calcular_indicadores(serie):
     
     return df
 
+def sanitizar_pdf(texto: str) -> str:
+    replacements = {
+        '•': '-', '€': 'EUR', '🟢': '[COMPRA]', '🟡': '[AGUARDAR]', '🔴': '[VENDA]',
+        '📌': '-', '⚠️': '[Aviso]', '📊': '', '📋': '', '🔍': '', '📈': '', '⚖️': '', '💡': ''
+    }
+    for orig, repl in replacements.items():
+        texto = texto.replace(orig, repl)
+    return texto.encode('latin-1', 'replace').decode('latin-1')
+
+def gerar_pdf_relatorio(itens_diagnostico, data_str):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font('Helvetica', 'B', 16)
+    pdf.cell(pdf.epw, 10, sanitizar_pdf('ETF Tracker XTB - Relatório Interpretativo'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.set_font('Helvetica', 'I', 10)
+    pdf.cell(pdf.epw, 6, sanitizar_pdf(f'Data de emissão: {data_str} | Bolsa Xetra'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.ln(5)
+
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(pdf.epw, 8, sanitizar_pdf('1. Diagnóstico de Decisão por Ativo'), new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(2)
+
+    for item in itens_diagnostico:
+        pdf.set_font('Helvetica', 'B', 11)
+        pdf.multi_cell(pdf.epw, 6, sanitizar_pdf(f"- {item['nome']} ({item['ticker']})"), new_x='LMARGIN', new_y='NEXT')
+        pdf.set_font('Helvetica', '', 10)
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"  Preço de Fecho: EUR {item['preco']:.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"  Ação Recomendada: {item['acao']}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"  RSI (14): {item['rsi']:.1f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"  Diagnóstico: {item['explicacao']}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.ln(3)
+
+    pdf.ln(2)
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(pdf.epw, 8, sanitizar_pdf('2. Conclusão de Diversificação da Carteira'), new_x='LMARGIN', new_y='NEXT')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf("A relação entre o fundo monetário (PRAB) e as ações globais (XDEQ) mantém-se descorrelacionada (~0.05). Isto garante a estabilidade do capital de curto prazo independente das oscilações de mercado."), new_x='LMARGIN', new_y='NEXT')
+
+    return bytes(pdf.output())
+
+def enviar_email_relatorio(destinatario, assunto, corpo_texto):
+    if not GMAIL_PASS:
+        return False, "Senha de aplicativo do Gmail (GMAIL_PASS) não configurada nos Secrets do Streamlit."
+    try:
+        msg = MIMEText(corpo_texto, 'plain', 'utf-8')
+        msg['Subject'] = assunto
+        msg['From'] = GMAIL_USER
+        msg['To'] = destinatario
+
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=20) as server:
+            server.starttls()
+            server.login(GMAIL_USER, GMAIL_PASS)
+            server.send_message(msg)
+        return True, "E-mail enviado com sucesso!"
+    except Exception as e:
+        return False, f"Falha ao enviar e-mail: {str(e)}"
+
 # SEPARADORES PRINCIPAIS
-tab1, tab2 = st.tabs(["📈 Análise Técnica & Diagnóstico", "⚖️ Calculadora de Rebalanceamento"])
+tab1, tab2 = st.tabs(["📈 Análise Técnica & Relatório", "⚖️ Calculadora de Rebalanceamento"])
 
 # =========================================================
-# TAB 1: ANÁLISE TÉCNICA E INDICADORES
+# TAB 1: ANÁLISE TÉCNICA E RELATÓRIO
 # =========================================================
 with tab1:
     etfs_selecionados = list(ETF_MAP.keys())
@@ -98,6 +162,9 @@ with tab1:
 
     # 2. Relatório Dinâmico
     st.subheader("📋 Relatório Dinâmico: Decisão Prática do Portfólio")
+    
+    itens_diagnostico = []
+    
     with st.expander("🔍 Ver Situação e Ação Prática por ETF", expanded=True):
         for nome in etfs_selecionados:
             ticker = ETF_MAP[nome]["ticker"]
@@ -128,11 +195,72 @@ with tab1:
                         status_acao = "🔴 FAVORÁVEL À VENDA / EVITAR"
                         explicacao = f"Tendência primária de baixa confirmada (MA50 < MA200). Evite novas compras até sinal de recuperação."
                 
+                itens_diagnostico.append({
+                    "nome": nome,
+                    "ticker": ticker,
+                    "preco": preco,
+                    "acao": status_acao,
+                    "rsi": rsi,
+                    "explicacao": explicacao
+                })
+
                 st.markdown(f"### 📌 {nome} (`{ticker}`)")
                 st.write(f"- **Cotação Atual:** €{preco:.2f}")
                 st.markdown(f"- **Ação Recomendada:** `{status_acao}`")
                 st.write(f"- **Diagnóstico Direto:** {explicacao}")
                 st.markdown("---")
+
+    # OPÇÕES DE EXPORTAÇÃO (PDF E E-MAIL)
+    st.subheader("📥 Exportação e Envio do Relatório")
+    col_pdf, col_email = st.columns(2)
+
+    data_hoje = datetime.now().strftime("%d/%m/%Y")
+
+    # Opção A: PDF
+    with col_pdf:
+        st.markdown("#### **Salvar Relatório em PDF**")
+        st.caption("Gere um documento formatado em PDF para guardar no dispositivo.")
+        if itens_diagnostico:
+            pdf_data = gerar_pdf_relatorio(itens_diagnostico, data_hoje)
+            st.download_button(
+                label="📄 Descarregar Relatório em PDF",
+                data=pdf_data,
+                file_name=f"Relatorio_ETFs_XTB_{datetime.now().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+    # Opção B: E-mail
+    with col_email:
+        st.markdown("#### **Enviar Relatório por E-mail**")
+        st.caption("Dispare o relatório completo para a sua caixa de entrada agora.")
+        
+        email_destin = st.text_input("E-mail de Destino:", value=GMAIL_USER, key="dest_email")
+        
+        if st.button("📧 Enviar Relatório por E-mail Agora", use_container_width=True):
+            if itens_diagnostico:
+                corpo_email = f"📋 Relatório de Análise e Decisão de ETFs XTB\nData: {data_hoje}\n\n"
+                for item in itens_diagnostico:
+                    corpo_email += (
+                        f"📌 {item['nome']} ({item['ticker']})\n"
+                        f"• Preço de Fecho: €{item['preco']:.2f}\n"
+                        f"• Ação Recomendada: {item['acao']}\n"
+                        f"• Velocímetro (RSI 14): {item['rsi']:.1f}\n"
+                        f"• Diagnóstico: {item['explicacao']}\n\n"
+                    )
+                corpo_email += "---\nAcesse o painel interativo em: https://etf-xtb-alerta.streamlit.app"
+                
+                sucesso, msg = enviar_email_relatorio(
+                    destinatario=email_destin,
+                    assunto=f"Relatório ETFs XTB - {data_hoje}",
+                    corpo_texto=corpo_email
+                )
+                if sucesso:
+                    st.success(msg)
+                else:
+                    st.warning(msg)
+
+    st.markdown("---")
 
     # 3. Gráficos Técnicos
     st.subheader("📈 Gráficos Técnicos Individuais")
@@ -213,7 +341,6 @@ with tab2:
     cotas_input = {}
     precos_input = {}
     
-    # Valores Padrão do Seu Portfólio
     padroes = {
         "PRAB": {"cotas": 654, "ticker": "PRAB.DE"},
         "IBCI": {"cotas": 110, "ticker": "IBCI.DE"},
@@ -242,7 +369,6 @@ with tab2:
         
         val_alvo = {a: patrimonio_futuro * targets[a] for a in targets}
         
-        # Otimização discreta de cotas inteiras
         max_c = {a: int(capital // precos_input[a]) + 1 for a in targets}
         
         melhor_erro = float('inf')
@@ -302,7 +428,7 @@ with tab2:
             st.write(f"• **{a}:** {pct_f:.1f}% *(Alvo: {int(targets[a]*100)}% | Desvio: {desvio:+.1f} pp)*")
             desvios.append(abs(desvio))
 
-# Botão de Download
+# Botão de Download Histórico
 st.markdown("---")
 if not dados.empty:
     csv = dados.to_csv().encode('utf-8')
