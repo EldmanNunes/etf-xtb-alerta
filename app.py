@@ -1,4 +1,5 @@
 import os
+import requests
 import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime
@@ -36,9 +37,24 @@ mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
 mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
 mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
 
-# Credenciais do Gmail
+# Credenciais do Gmail (Secrets do Streamlit Cloud ou Variáveis de Ambiente)
 GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", "eldman.nunes@gmail.com"))
 GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
+
+# Consulta Automática à API Oficial do Eurostat para Inflação HICP
+@st.cache_data(ttl=86400)
+def obter_hicp_oficial_eurostat():
+    try:
+        url = "[suspicious link removed]"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            dados = response.json()
+            valores = list(dados.get('value', {}).values())
+            if valores:
+                return round(float(valores[-1]), 1)
+    except Exception:
+        pass
+    return 2.2  # Fallback de segurança
 
 # Cache de Download de Dados
 @st.cache_data(ttl=3600)
@@ -205,7 +221,7 @@ def enviar_email_relatorio(destinatario, assunto, corpo_texto):
 # SEPARADORES PRINCIPAIS
 tab1, tab2, tab3 = st.tabs([
     "📈 Análise Técnica & Relatório",
-    "⚖️ Calculadora de Rebalanceamento",
+    "秤 Calculadora de Rebalanceamento",
     "💸 Gestão Anual de Saque & Reequilíbrio"
 ])
 
@@ -580,11 +596,21 @@ with tab3:
     col_s1, col_s2, col_s3 = st.columns(3)
     
     with col_s1:
-        data_venda_str = st.text_input("Data da Venda / Execução:", value=datetime.now().strftime("%d/%m/%Y"), key="data_venda_saque")
+        data_venda_dt = st.date_input("Data da Venda / Execução:", value=datetime.now().date(), format="DD/MM/YYYY", key="data_venda_saque")
+        data_venda_str = data_venda_dt.strftime("%d/%m/%Y")
     with col_s2:
         taxa_saque_base = st.number_input("Taxa de Saque Teórico Base (%)", min_value=0.1, max_value=10.0, value=3.5, step=0.1, key="taxa_saque_base")
     with col_s3:
-        hicp = st.number_input("Inflação HICP Anual (%)", min_value=-5.0, max_value=20.0, value=2.2, step=0.1, key="hicp_input")
+        hicp_sugerido = obter_hicp_oficial_eurostat()
+        hicp = st.number_input(
+            "Inflação HICP Anual (%)",
+            min_value=-5.0,
+            max_value=20.0,
+            value=float(hicp_sugerido),
+            step=0.1,
+            key="hicp_input",
+            help="Valor pré-preenchido automaticamente via API do Eurostat (Zona Euro). Pode editar manualmente se desejar."
+        )
 
     st.markdown("### 1. Dados de Entrada da Carteira")
     s_cols = st.columns(3)
@@ -706,19 +732,17 @@ with tab3:
         st.subheader("📥 Exportação e Envio do Relatório de Saque")
         col_pdf3, col_email3 = st.columns(2)
 
-        data_hoje3 = datetime.now().strftime("%d/%m/%Y")
-
         with col_pdf3:
             st.markdown("#### **Salvar Relatório de Saque em PDF**")
             st.caption("Gere um documento PDF oficial com as ordens de venda e o estado final da carteira.")
             pdf_bytes3 = gerar_pdf_saque(
                 sq["patrimonio_inicial"], hicp, sq["saque_teorico"], sq["saque_efetivo"],
-                "PRAB", sq["cotas_venda_prab"], sq["tabela_records"], data_hoje3
+                "PRAB", sq["cotas_venda_prab"], sq["tabela_records"], data_venda_str
             )
             st.download_button(
                 label="📄 Descarregar Relatório de Saque em PDF",
                 data=pdf_bytes3,
-                file_name=f"Relatorio_Saque_UCITS_XTB_{datetime.now().strftime('%Y%m%d')}.pdf",
+                file_name=f"Relatorio_Saque_UCITS_XTB_{data_venda_dt.strftime('%Y%m%d')}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
                 key="btn_pdf_tab3"
@@ -733,7 +757,7 @@ with tab3:
             if st.button("📧 Enviar Relatório de Saque por E-mail Agora", use_container_width=True, key="btn_email_tab3"):
                 corpo_email3 = (
                     f"💸 Carteira Ideal UCITS - Gestão Anual de Saque & Reequilíbrio\n"
-                    f"Data da Operação: {data_hoje3}\n\n"
+                    f"Data da Operação: {data_venda_str}\n\n"
                     f"• Patrimônio Inicial: €{sq['patrimonio_inicial']:,.2f}\n"
                     f"• Inflação HICP: {hicp:.1f}%\n"
                     f"• Saque Teórico (3.5% + HICP): €{sq['saque_teorico']:,.2f}\n"
@@ -753,7 +777,7 @@ with tab3:
 
                 sucesso, msg = enviar_email_relatorio(
                     destinatario=email_destin3,
-                    assunto=f"Plano de Saque Anual UCITS XTB - {data_hoje3}",
+                    assunto=f"Plano de Saque Anual UCITS XTB - {data_venda_str}",
                     corpo_texto=corpo_email3
                 )
                 if sucesso:
