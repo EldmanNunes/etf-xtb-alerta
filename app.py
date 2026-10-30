@@ -44,6 +44,9 @@ mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
 GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", ""))
 GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
 
+APP_DOMAIN = st.secrets.get("APP_DOMAIN", os.getenv("APP_DOMAIN", "etf-xtb-alerta.streamlit.app"))
+app_domain = APP_DOMAIN
+
 # Consulta Automática à API Oficial do Eurostat para Inflação HICP
 @st.cache_data(ttl=86400)
 def obter_hicp_oficial_eurostat():
