@@ -4,3 +4,6 @@ plotly
 streamlit
 matplotlib
 fpdf2
+requests
+statsmodels
+scikit-learn
