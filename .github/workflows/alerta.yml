@@ -2,18 +2,18 @@ name: Alerta 08:30 Lisboa
 
 on:
   schedule:
-    - cron: '30 7 * * 1-5'  # Executa de segunda a sexta às 07:30 UTC (08:30 Lisboa)
-  workflow_dispatch:        # Permite testar manualmente no GitHub
+    - cron: '30 7 * * 1-5'  # 07:30 UTC = 08:30 Lisboa
+  workflow_dispatch:        # Permite execução manual para testes
 
 jobs:
   executar-alerta:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout do Repositório
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Configurar Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
