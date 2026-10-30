@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 import yfinance as yf
 
-# Configuração de Logging para acompanhamento no GitHub Actions ou terminal
+# Configuração de Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Configurações via Variáveis de Ambiente
@@ -16,8 +16,8 @@ DESTINATARIO = os.getenv("GMAIL_DESTINO", REMETENTE)
 
 # Mapeamento dos ETFs (Nome Amigável: Ticker na Xetra)
 ETF_MAP = {
-    "PRAB - Amundi 0-1Y": "PRAB.DE",
     "XDEQ - World Quality": "XDEQ.DE",
+    "PRAB - Amundi 0-1Y": "PRAB.DE",
     "IBCI - Inflation Linked": "IBCI.DE"
 }
 
@@ -42,25 +42,29 @@ def enviar_email(assunto: str, corpo: str) -> None:
         logging.error("Falha ao enviar e-mail via SMTP: %s", str(e))
         raise
 
+def calcular_rsi(serie_preco: pd.Series, periodo: int = 14) -> pd.Series:
+    """Calcula o RSI (Relative Strength Index) de 14 períodos."""
+    delta = serie_preco.diff()
+    gain = delta.where(delta > 0, 0).rolling(periodo).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(periodo).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
 def buscar_e_analisar_dados() -> list:
-    """Baixa cotações, calcula médias móveis vetorizadas e identifica sinais."""
+    """Baixa cotações, calcula MA50, MA200 e RSI14 e gera blocos de texto formatados para o e-mail."""
     tickers = list(ETF_MAP.values())
     logging.info("Buscando histórico para os tickers: %s", tickers)
 
-    # period="2y" garante dados suficientes para calcular MA200 sem faltas por feriados
     df_raw = yf.download(tickers, period="2y", auto_adjust=True, progress=False)
 
-    # Trata estrutura do DataFrame do yfinance (níveis de coluna)
     if 'Close' in df_raw:
         df_close = df_raw['Close']
     else:
         df_close = df_raw
 
-    # Se apenas um ticker for retornado como Series, converte para DataFrame
     if isinstance(df_close, pd.Series):
         df_close = df_close.to_frame()
 
-    # Cálculo vetorizado das médias móveis de 50 e 200 dias
     df_ma50 = df_close.rolling(window=50).mean()
     df_ma200 = df_close.rolling(window=200).mean()
 
@@ -71,53 +75,79 @@ def buscar_e_analisar_dados() -> list:
             logging.warning("Ticker %s não encontrado nos dados baixados.", ticker)
             continue
 
-        # Limpa valores nulos do ticker específico
         serie_preco = df_close[ticker].dropna()
         serie_ma50 = df_ma50[ticker].dropna()
         serie_ma200 = df_ma200[ticker].dropna()
+        serie_rsi = calcular_rsi(serie_preco)
 
-        # Garante que temos pelo menos 200 dias de histórico válido
-        if len(serie_preco) < 200 or len(serie_ma50) < 2 or len(serie_ma200) < 2:
-            logging.warning("Histórico insuficiente para calcular MA200 do ETF %s.", nome)
+        if len(serie_preco) < 200:
+            logging.warning("Histórico insuficiente para %s.", nome)
             continue
 
-        # Valores de ontem (fechamento oficial) e anteontem para evitar repaint
         preco_ontem = serie_preco.iloc[-1]
         ma50_ontem = serie_ma50.iloc[-1]
         ma50_anteontem = serie_ma50.iloc[-2]
         ma200_ontem = serie_ma200.iloc[-1]
         ma200_anteontem = serie_ma200.iloc[-2]
+        rsi_ontem = serie_rsi.iloc[-1]
 
-        # Sinais de Cruzamento
+        # Verifica cruzamentos de médias
         golden_cross = (ma50_anteontem <= ma200_anteontem) and (ma50_ontem > ma200_ontem)
         death_cross = (ma50_anteontem >= ma200_anteontem) and (ma50_ontem < ma200_ontem)
 
-        if golden_cross:
-            sinal = f"🟢 COMPRA (Golden Cross) - {nome}\n   Fecho: €{preco_ontem:.2f} | MA50: €{ma50_ontem:.2f} | MA200: €{ma200_ontem:.2f}"
-            alertas.append(sinal)
-            logging.info("Sinal de COMPRA gerado para %s", nome)
-        elif death_cross:
-            sinal = f"🔴 VENDA (Death Cross) - {nome}\n   Fecho: €{preco_ontem:.2f} | MA50: €{ma50_ontem:.2f} | MA200: €{ma200_ontem:.2f}"
-            alertas.append(sinal)
-            logging.info("Sinal de VENDA gerado para %s", nome)
+        if golden_cross or death_cross:
+            # Classificação amigável do RSI
+            if rsi_ontem > 70:
+                rsi_label = f"{rsi_ontem:.1f} (Sobrecomprado)"
+            elif rsi_ontem < 30:
+                rsi_label = f"{rsi_ontem:.1f} (Preço com Desconto / Sobrevendido)"
+            else:
+                rsi_label = f"{rsi_ontem:.1f} (Zona Neutra / Preço Saudável)"
+
+            # Definição da Ação e Motivo
+            if golden_cross:
+                if rsi_ontem > 70:
+                    acao = "🟡 DESFAVORÁVEL À COMPRA (Preço Esticado)"
+                    motivo = f"Ocorreu cruzamento de alta (Golden Cross), mas o preço subiu muito rápido (RSI {rsi_ontem:.1f}). Aguarde uma pausa antes de novos aportes."
+                else:
+                    acao = "🟢 FAVORÁVEL À COMPRA"
+                    motivo = f"Novo cruzamento de alta (Golden Cross) confirmado com RSI saudável ({rsi_ontem:.1f}). Bom momento técnico para compra."
+            else: # death_cross
+                if rsi_ontem < 30:
+                    acao = "🟡 DESFAVORÁVEL À VENDA (Sobrevendido)"
+                    motivo = f"Ocorreu cruzamento de baixa (Death Cross), porém o ativo já caiu excessivamente (RSI {rsi_ontem:.1f}). Vender agora pode significar sair no fundo."
+                else:
+                    acao = "🔴 FAVORÁVEL À VENDA"
+                    motivo = f"Cruzamento de baixa (Death Cross) confirmado. Evite novas compras e considere rebalancear a posição."
+
+            bloco = (
+                f"📌 {nome} (`{ticker}`)\n"
+                f"• Cotação de Fecho: €{preco_ontem:.2f}\n"
+                f"• Ação Recomendada: {acao}\n"
+                f"• Velocímetro (RSI 14): {rsi_label}\n"
+                f"• Motivo: {motivo}"
+            )
+            alertas.append(bloco)
+            logging.info("Sinal gerado para %s: %s", nome, acao)
 
     return alertas
 
 def main():
     try:
-        logging.info("Iniciando execução da análise técnica de ETFs...")
+        logging.info("Iniciando execução do script de alertas...")
         alertas = buscar_e_analisar_dados()
 
         if alertas:
             data_str = datetime.now().strftime("%d/%m/%Y")
             corpo = (
-                f"Relatório de Sinais XTB - 08:30 Lisboa ({data_str})\n"
-                f"Baseado no fecho oficial Xetra do dia anterior.\n\n"
-                + "\n\n".join(alertas)
-                + "\n\n---"
-                + "\nNota: Sinais baseados no cruzamento de Médias Móveis (MA50 e MA200)."
+                f"🗓️ 08:30 Lisboa | {data_str}\n"
+                f"📈 Preços do fecho de ontem na Bolsa Xetra\n\n"
+                f"----------------------------------------\n\n"
+                + "\n\n----------------------------------------\n\n".join(alertas)
+                + "\n\n----------------------------------------\n"
+                + "💡 Acesse o seu painel de gráficos e análises completo em: https://etf-xtb-alerta.streamlit.app"
             )
-            assunto = f"Alerta XTB 08:30 - {len(alertas)} sinal(is) identificado(s)"
+            assunto = f"Alerta XTB 08:30 - {len(alertas)} Sinal(is) Detetado(s)"
             enviar_email(assunto, corpo)
         else:
             logging.info("Nenhum sinal de compra ou venda gerado hoje. E-mail omitido para evitar spam.")
