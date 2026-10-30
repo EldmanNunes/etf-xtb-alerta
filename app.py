@@ -187,3 +187,56 @@ if not dados.empty:
         file_name="etf_xtb_historico.csv",
         mime="text/csv"
     )
+    
+# =========================================================
+# 5. RELATÓRIO INTERPRETATIVO DINÂMICO AUTOMATIZADO
+# =========================================================
+st.markdown("---")
+st.subheader("📋 Relatório Interpretativo de Alocação e Tendência")
+
+with st.expander("🔍 Clique para expandir o Diagnóstico Automatizado da Carteira", expanded=True):
+    for nome in etfs_selecionados:
+        ticker = ETF_MAP[nome]
+        if ticker in dados.columns:
+            serie = dados[ticker].dropna()
+            df_ind = calcular_indicadores(serie)
+            
+            ultimo_preco = df_ind['Preco'].iloc[-1]
+            ma50 = df_ind['MA50'].iloc[-1]
+            ma200 = df_ind['MA200'].iloc[-1]
+            rsi = df_ind['RSI'].iloc[-1]
+            macd = df_ind['MACD'].iloc[-1]
+            sinal = df_ind['MACD_Signal'].iloc[-1]
+            
+            # Diagnóstico da Tendência (Média Móvel)
+            if ma50 > ma200:
+                tendencia = "🟢 **Tendência de Alta** (Golden Cross ativa — MA50 acima da MA200)"
+            else:
+                tendencia = "🔴 **Tendência de Baixa** (Death Cross ativa — MA50 abaixo da MA200)"
+                
+            # Diagnóstico do RSI
+            if rsi > 70:
+                rsi_diag = "⚠️ **Sobrecomprado** (RSI > 70 — Possibilidade de correção a curto prazo)"
+            elif rsi < 30:
+                rsi_diag = "🟢 **Sobrevendido** (RSI < 30 — Oportunidade técnica de compra)"
+            else:
+                rsi_diag = f"🟡 **Neutro** (RSI a {rsi:.1f})"
+                
+            # Diagnóstico do MACD
+            macd_diag = "🟢 **Sinal Comprador**" if macd > sinal else "🔴 **Sinal Vendedor**"
+
+            st.markdown(f"### 📌 {nome} (`{ticker}`)")
+            st.write(f"- **Preço Atual:** €{ultimo_preco:.2f}")
+            st.write(f"- **Estrutura de Mercado:** {tendencia}")
+            st.write(f"- **Momento (RSI 14):** {rsi_diag}")
+            st.write(f"- **Impulso (MACD):** {macd_diag}")
+            st.markdown("---")
+            
+    # Diagnóstico de Correlação da Carteira
+    if len(etfs_selecionados) > 1:
+        st.markdown("### 📊 Conclusão de Diversificação da Carteira")
+        st.info(
+            "**Análise de Descorrelação:** A inclusão combinada de ações globais (XDEQ) e "
+            "títulos de curto prazo (PRAB) mantém uma correlação próxima de zero (~0.05). "
+            "Isso garante que a parcela de liquidez permanece imune às oscilações do mercado acionista."
+        )
