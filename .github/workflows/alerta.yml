@@ -1,0 +1,29 @@
+name: Alerta 08:30 Lisboa
+
+on:
+  schedule:
+    - cron: '30 7 * * 1-5'  # Executa de segunda a sexta às 07:30 UTC (08:30 Lisboa)
+  workflow_dispatch:        # Permite testar manualmente no GitHub
+
+jobs:
+  executar-alerta:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do Repositório
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Instalar Dependências
+        run: |
+          pip install --upgrade pip
+          pip install yfinance pandas
+
+      - name: Executar Script de Alerta
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
+        run: python alerta_0830.py
