@@ -2,3 +2,4 @@ yfinance
 pandas
 plotly
 streamlit
+matplotlib
