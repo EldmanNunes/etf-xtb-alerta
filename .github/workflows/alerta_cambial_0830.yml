@@ -8,19 +8,18 @@ name: Alerta Diário de Câmbio 08:30
 
 on:
   schedule:
-    # Executa de segunda a sexta às 08:30 GMT/UTC (Lisboa)
     - cron: '30 8 * * 1-5'
-  workflow_dispatch: # Permite execução manual no GitHub se desejar
+  workflow_dispatch:
 
 jobs:
   analise-cambio:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout do Repositório
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Configurar Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -37,6 +36,6 @@ jobs:
           MOEDA_BASE: 'EUR'
           MOEDA_ALVO: 'BRL'
           SPREAD_PCT: '1.5'
-          META_COMPRA: '0.0' # Altere para um valor ex.: '5.90' se quiser definir uma meta fixa
+          META_COMPRA: '0.0'
         run: |
           python alerta_cambial_0830.py
