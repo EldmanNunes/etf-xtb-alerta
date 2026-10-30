@@ -189,54 +189,65 @@ if not dados.empty:
     )
     
 # =========================================================
-# 5. RELATÓRIO INTERPRETATIVO DINÂMICO AUTOMATIZADO
+# 5. RELATÓRIO DINÂMICO COM AÇÃO E JUSTIFICATIVA DETALHADA
 # =========================================================
 st.markdown("---")
-st.subheader("📋 Relatório Interpretativo de Alocação e Tendência")
+st.subheader("📋 Relatório Dinâmico: Ação Recomendada e Justificativa")
 
-with st.expander("🔍 Clique para expandir o Diagnóstico Automatizado da Carteira", expanded=True):
+with st.expander("🔍 Clique para ver a Situação Detalhada por Ativo", expanded=True):
     for nome in etfs_selecionados:
         ticker = ETF_MAP[nome]
         if ticker in dados.columns:
             serie = dados[ticker].dropna()
             df_ind = calcular_indicadores(serie)
             
-            ultimo_preco = df_ind['Preco'].iloc[-1]
+            preco = df_ind['Preco'].iloc[-1]
             ma50 = df_ind['MA50'].iloc[-1]
             ma200 = df_ind['MA200'].iloc[-1]
             rsi = df_ind['RSI'].iloc[-1]
             macd = df_ind['MACD'].iloc[-1]
             sinal = df_ind['MACD_Signal'].iloc[-1]
             
-            # Diagnóstico da Tendência (Média Móvel)
+            # Lógica de Decisão (Ação e Porquê)
             if ma50 > ma200:
-                tendencia = "🟢 **Tendência de Alta** (Golden Cross ativa — MA50 acima da MA200)"
+                if rsi > 70:
+                    acao = "🟡 ESPERAR / MANTER"
+                    porque = (
+                        f"A tendência primária é de **alta** (Golden Cross ativa: MA50 €{ma50:.2f} > MA200 €{ma200:.2f}), "
+                        f"mas o RSI está em **{rsi:.1f} (Sobrecomprado)**. Fazer novas compras agora seria entrar a um preço esticado. "
+                        f"A recomendação é manter a posição atual sem efetuar novos aportes."
+                    )
+                else:
+                    acao = "🟢 COMPRAR / MANTER"
+                    porque = (
+                        f"A tendência primária é de **alta** (MA50 > MA200) e o RSI está em **{rsi:.1f} (Saudável)**. "
+                        f"A estrutura técnica é favorável para manter a posição ou realizar novos aportes."
+                    )
             else:
-                tendencia = "🔴 **Tendência de Baixa** (Death Cross ativa — MA50 abaixo da MA200)"
-                
-            # Diagnóstico do RSI
-            if rsi > 70:
-                rsi_diag = "⚠️ **Sobrecomprado** (RSI > 70 — Possibilidade de correção a curto prazo)"
-            elif rsi < 30:
-                rsi_diag = "🟢 **Sobrevendido** (RSI < 30 — Oportunidade técnica de compra)"
-            else:
-                rsi_diag = f"🟡 **Neutro** (RSI a {rsi:.1f})"
-                
-            # Diagnóstico do MACD
-            macd_diag = "🟢 **Sinal Comprador**" if macd > sinal else "🔴 **Sinal Vendedor**"
-
+                if macd > sinal:
+                    acao = "🟡 ESPERAR"
+                    porque = (
+                        f"O ativo encontra-se em **tendência primária de baixa** (Death Cross ativa: MA50 €{ma50:.2f} < MA200 €{ma200:.2f}). "
+                        f"Embora o MACD indique uma ligeira recuperação no curto prazo, o modelo exige aguardar um cruzamento de alta "
+                        f"(Golden Cross) definitivo antes de abrir nova posição."
+                    )
+                else:
+                    acao = "🔴 ESPERAR / EVITAR COMPRAS"
+                    porque = (
+                        f"Tendência primária de **baixa** (MA50 < MA200) e sem sinais de recuperação no curto prazo (MACD vendedor). "
+                        f"Mantenha-se fora do ativo até que surjam sinais claros de reversão técnica."
+                    )
+            
             st.markdown(f"### 📌 {nome} (`{ticker}`)")
-            st.write(f"- **Preço Atual:** €{ultimo_preco:.2f}")
-            st.write(f"- **Estrutura de Mercado:** {tendencia}")
-            st.write(f"- **Momento (RSI 14):** {rsi_diag}")
-            st.write(f"- **Impulso (MACD):** {macd_diag}")
+            st.markdown(f"- **Preço Atual:** €{preco:.2f}")
+            st.markdown(f"- **Ação Recomendada:** `{acao}`")
+            st.markdown(f"- **Porquê / Justificativa:** {porque}")
             st.markdown("---")
             
-    # Diagnóstico de Correlação da Carteira
+    # Conclusão Geral da Carteira
     if len(etfs_selecionados) > 1:
-        st.markdown("### 📊 Conclusão de Diversificação da Carteira")
+        st.markdown("### 📊 Conclusão da Diversificação")
         st.info(
-            "**Análise de Descorrelação:** A inclusão combinada de ações globais (XDEQ) e "
-            "títulos de curto prazo (PRAB) mantém uma correlação próxima de zero (~0.05). "
-            "Isso garante que a parcela de liquidez permanece imune às oscilações do mercado acionista."
+            "**Descorrelação Estrutural:** A relação entre o fundo monetário (PRAB) e as ações globais (XDEQ) "
+            "mantém-se em ~0.05. Isto garante que a sua reserva de curto prazo permanece imune às oscilações e volatilidades do mercado acionista."
         )
