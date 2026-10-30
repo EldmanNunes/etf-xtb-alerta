@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 import requests
 
-# Configuração de Logging
+# Configuração de Logging para acompanhamento no GitHub Actions ou terminal
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Configurações via Variáveis de Ambiente
@@ -43,7 +43,7 @@ def enviar_email(assunto: str, corpo: str) -> None:
         raise
 
 def buscar_dados_cambio(base: str, alvo: str, inicio: str = "2024-01-01") -> pd.DataFrame:
-    """Obtém o histórico de taxas de câmbio da API pública do Frankfurter."""
+    """Obtém o histórico de taxas de câmbio da API pública do Frankfurter sem avisos de depreciação."""
     domain_frankfurter = "api." + "frankfurter." + "dev"
     endpoint_fx = f'https://{domain_frankfurter}/v1/{inicio}..?from={base}&to={alvo}'
     
@@ -52,8 +52,8 @@ def buscar_dados_cambio(base: str, alvo: str, inicio: str = "2024-01-01") -> pd.
         if r.status_code == 200:
             data = r.json().get('rates', {})
             df = pd.DataFrame([{'date': pd.to_datetime(d), 'rate': v[alvo]} for d, v in data.items()])
-            df.set_index('date', inplace=True)
-            df.sort_index(inplace=True)
+            # Encadeamento sem inplace=True para compatibilidade total com Pandas 3.0+
+            df = df.set_index('date').sort_index()
             return df
         else:
             logging.error("API Frankfurter respondeu com status %d", r.status_code)
