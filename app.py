@@ -36,7 +36,7 @@ mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
 mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
 mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
 
-# Credenciais de E-mail
+# Credenciais do Gmail
 GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", "eldman.nunes@gmail.com"))
 GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
 
@@ -79,7 +79,7 @@ def calcular_indicadores(serie):
 def sanitizar_pdf(texto: str) -> str:
     replacements = {
         '•': '-', '€': 'EUR', '🟢': '[COMPRA]', '🟡': '[AGUARDAR]', '🔴': '[VENDA]',
-        '📌': '-', '⚠️': '[Aviso]', '📊': '', '📋': '', '🔍': '', '📈': '', '⚖️': '', '💡': ''
+        '📌': '-', '⚠️': '[Aviso]', '📊': '', '📋': '', '🔍': '', '📈': '', '⚖️': '', '💡': '', '🚀': ''
     }
     for orig, repl in replacements.items():
         texto = texto.replace(orig, repl)
@@ -91,7 +91,7 @@ def gerar_pdf_relatorio(itens_diagnostico, data_str):
     pdf.set_font('Helvetica', 'B', 16)
     pdf.cell(pdf.epw, 10, sanitizar_pdf('ETF Tracker XTB - Relatório Interpretativo'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.set_font('Helvetica', 'I', 10)
-    pdf.cell(pdf.epw, 6, sanitizar_pdf(f'Data de emissão: {data_str} | Bolsa Xetra'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.cell(pdf.epw, 6, sanitizar_pdf(f'Data de emissao: {data_str} | Bolsa Xetra'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.ln(5)
 
     pdf.set_font('Helvetica', 'B', 12)
@@ -110,9 +110,42 @@ def gerar_pdf_relatorio(itens_diagnostico, data_str):
 
     pdf.ln(2)
     pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(pdf.epw, 8, sanitizar_pdf('2. Conclusão de Diversificação da Carteira'), new_x='LMARGIN', new_y='NEXT')
+    pdf.cell(pdf.epw, 8, sanitizar_pdf('2. Conclusao de Diversificacao da Carteira'), new_x='LMARGIN', new_y='NEXT')
     pdf.set_font('Helvetica', '', 10)
     pdf.multi_cell(pdf.epw, 5, sanitizar_pdf("A relação entre o fundo monetário (PRAB) e as ações globais (XDEQ) mantém-se descorrelacionada (~0.05). Isto garante a estabilidade do capital de curto prazo independente das oscilações de mercado."), new_x='LMARGIN', new_y='NEXT')
+
+    return bytes(pdf.output())
+
+def gerar_pdf_rebalanceamento(patrimonio_atual, capital, total_investido, caixa_residual, df_res_records, alocacoes_str, data_str):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font('Helvetica', 'B', 16)
+    pdf.cell(pdf.epw, 10, sanitizar_pdf('XTB Portfolio Rebalancer - Plano de Aporte'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.set_font('Helvetica', 'I', 10)
+    pdf.cell(pdf.epw, 6, sanitizar_pdf(f'Data de emissao: {data_str} | Corretora XTB (Cotas Inteiras)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.ln(5)
+
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(pdf.epw, 8, sanitizar_pdf('1. Resumo do Capital e Patrimonio'), new_x='LMARGIN', new_y='NEXT')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Patrimonio Atual: EUR {patrimonio_atual:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Capital Disponivel para Aporte: EUR {capital:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total Efetivamente Investido: EUR {total_investido:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Caixa Residual (Sobra nao alocada): EUR {caixa_residual:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(4)
+
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(pdf.epw, 8, sanitizar_pdf('2. Ordens de Compra Sugeridas'), new_x='LMARGIN', new_y='NEXT')
+    pdf.set_font('Helvetica', '', 10)
+    for rec in df_res_records:
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- {rec['ETF']}: Comprar {rec['Cotas a Comprar']} cotas -> Investimento: {rec['Investimento (€)']} | Saldo Final Est.: {rec['Saldo Final Est. (€)']}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(4)
+
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(pdf.epw, 8, sanitizar_pdf('3. Alocacao Final Estimada vs Alvo Estrategico'), new_x='LMARGIN', new_y='NEXT')
+    pdf.set_font('Helvetica', '', 10)
+    for aloc in alocacoes_str:
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- {aloc}"), new_x='LMARGIN', new_y='NEXT')
 
     return bytes(pdf.output())
 
@@ -142,7 +175,6 @@ tab1, tab2 = st.tabs(["📈 Análise Técnica & Relatório", "⚖️ Calculadora
 with tab1:
     etfs_selecionados = list(ETF_MAP.keys())
     
-    # 1. Métricas no topo
     if not dados.empty:
         cols = st.columns(len(etfs_selecionados))
         for idx, nome in enumerate(etfs_selecionados):
@@ -160,7 +192,6 @@ with tab1:
 
     st.markdown("---")
 
-    # 2. Relatório Dinâmico
     st.subheader("📋 Relatório Dinâmico: Decisão Prática do Portfólio")
     
     itens_diagnostico = []
@@ -210,50 +241,49 @@ with tab1:
                 st.write(f"- **Diagnóstico Direto:** {explicacao}")
                 st.markdown("---")
 
-    # OPÇÕES DE EXPORTAÇÃO (PDF E E-MAIL)
-    st.subheader("📥 Exportação e Envio do Relatório")
-    col_pdf, col_email = st.columns(2)
+    # EXPORTAÇÃO TAB 1
+    st.subheader("📥 Exportação e Envio do Relatório Técnico")
+    col_pdf1, col_email1 = st.columns(2)
 
     data_hoje = datetime.now().strftime("%d/%m/%Y")
 
-    # Opção A: PDF
-    with col_pdf:
-        st.markdown("#### **Salvar Relatório em PDF**")
-        st.caption("Gere um documento formatado em PDF para guardar no dispositivo.")
+    with col_pdf1:
+        st.markdown("#### **Salvar Relatório Técnico em PDF**")
+        st.caption("Gere um documento formatado em PDF do diagnóstico técnico para guardar no dispositivo.")
         if itens_diagnostico:
-            pdf_data = gerar_pdf_relatorio(itens_diagnostico, data_hoje)
+            pdf_data_t1 = gerar_pdf_relatorio(itens_diagnostico, data_hoje)
             st.download_button(
-                label="📄 Descarregar Relatório em PDF",
-                data=pdf_data,
-                file_name=f"Relatorio_ETFs_XTB_{datetime.now().strftime('%Y%m%d')}.pdf",
+                label="📄 Descarregar Relatório Técnico em PDF",
+                data=pdf_data_t1,
+                file_name=f"Relatorio_Tecnico_ETFs_XTB_{datetime.now().strftime('%Y%m%d')}.pdf",
                 mime="application/pdf",
-                use_container_width=True
+                use_container_width=True,
+                key="btn_pdf_tab1"
             )
 
-    # Opção B: E-mail
-    with col_email:
-        st.markdown("#### **Enviar Relatório por E-mail**")
-        st.caption("Dispare o relatório completo para a sua caixa de entrada agora.")
+    with col_email1:
+        st.markdown("#### **Enviar Relatório Técnico por E-mail**")
+        st.caption("Dispare o relatório de diagnóstico diretamente para a sua caixa de entrada.")
         
-        email_destin = st.text_input("E-mail de Destino:", value=GMAIL_USER, key="dest_email")
+        email_destin1 = st.text_input("E-mail de Destino:", value=GMAIL_USER, key="dest_email_tab1")
         
-        if st.button("📧 Enviar Relatório por E-mail Agora", use_container_width=True):
+        if st.button("📧 Enviar Relatório Técnico por E-mail Agora", use_container_width=True, key="btn_email_tab1"):
             if itens_diagnostico:
-                corpo_email = f"📋 Relatório de Análise e Decisão de ETFs XTB\nData: {data_hoje}\n\n"
+                corpo_email1 = f"📋 Relatório de Análise e Decisão de ETFs XTB\nData: {data_hoje}\n\n"
                 for item in itens_diagnostico:
-                    corpo_email += (
+                    corpo_email1 += (
                         f"📌 {item['nome']} ({item['ticker']})\n"
                         f"• Preço de Fecho: €{item['preco']:.2f}\n"
                         f"• Ação Recomendada: {item['acao']}\n"
                         f"• Velocímetro (RSI 14): {item['rsi']:.1f}\n"
                         f"• Diagnóstico: {item['explicacao']}\n\n"
                     )
-                corpo_email += "---\nAcesse o painel interativo em: https://etf-xtb-alerta.streamlit.app"
+                corpo_email1 += "---\nAcesse o painel interativo em: https://etf-xtb-alerta.streamlit.app"
                 
                 sucesso, msg = enviar_email_relatorio(
-                    destinatario=email_destin,
-                    assunto=f"Relatório ETFs XTB - {data_hoje}",
-                    corpo_texto=corpo_email
+                    destinatario=email_destin1,
+                    assunto=f"Relatório Técnico ETFs XTB - {data_hoje}",
+                    corpo_texto=corpo_email1
                 )
                 if sucesso:
                     st.success(msg)
@@ -262,7 +292,6 @@ with tab1:
 
     st.markdown("---")
 
-    # 3. Gráficos Técnicos
     st.subheader("📈 Gráficos Técnicos Individuais")
     for nome in etfs_selecionados:
         ticker = ETF_MAP[nome]["ticker"]
@@ -319,7 +348,6 @@ with tab1:
             fig.update_layout(height=350 + (num_rows * 140), hovermode="x unified", showlegend=True, margin=dict(l=20, r=20, t=40, b=20))
             st.plotly_chart(fig, use_container_width=True)
 
-    # 4. Matriz de Correlação
     st.subheader("📊 Matriz de Correlação dos Retornos Diários")
     if not dados.empty:
         retornos = dados.pct_change().dropna()
@@ -360,14 +388,12 @@ with tab2:
             cotas_input[sigla] = cotas
             precos_input[sigla] = preco
 
-    if st.button("🚀 Calcular Ordem de Compra Otimizada", type="primary", use_container_width=True):
+    def processar_rebalanceamento():
         targets = {"PRAB": 0.25, "IBCI": 0.45, "XDEQ": 0.30}
         
         val_atual = {a: cotas_input[a] * precos_input[a] for a in cotas_input}
         patrimonio_atual = sum(val_atual.values())
         patrimonio_futuro = patrimonio_atual + capital
-        
-        val_alvo = {a: patrimonio_futuro * targets[a] for a in targets}
         
         max_c = {a: int(capital // precos_input[a]) + 1 for a in targets}
         
@@ -397,11 +423,11 @@ with tab2:
                         melhor_erro = erro
                         melhor_compras = {"PRAB": c1, "IBCI": c2, "XDEQ": c3}
 
-        st.markdown("---")
-        st.subheader("📊 Plano de Compra Sugerido (XTB)")
-        
         investir_por_ativo = {a: melhor_compras[a] * precos_input[a] for a in targets}
         saldo_final_est = {a: val_atual[a] + investir_por_ativo[a] for a in targets}
+        total_investido = sum(investir_por_ativo.values())
+        caixa_residual = capital - total_investido
+        patrimonio_final = patrimonio_atual + total_investido
         
         df_res = pd.DataFrame({
             "ETF": list(targets.keys()),
@@ -409,24 +435,102 @@ with tab2:
             "Investimento (€)": [f"€{investir_por_ativo[a]:,.2f}" for a in targets],
             "Saldo Final Est. (€)": [f"€{saldo_final_est[a]:,.2f}" for a in targets]
         })
-        st.dataframe(df_res, use_container_width=True, hide_index=True)
         
-        total_investido = sum(investir_por_ativo.values())
-        caixa_residual = capital - total_investido
-        patrimonio_final = patrimonio_atual + total_investido
-        
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Patrimônio Atual", f"€{patrimonio_atual:,.2f}")
-        m2.metric("Total a Investir", f"€{total_investido:,.2f}")
-        m3.metric("Caixa Residual (Sobra)", f"€{caixa_residual:,.2f}")
-        
-        st.markdown("#### **Alocação Final Estimada após Aporte:**")
-        desvios = []
+        alocacoes_str = []
         for a in targets:
             pct_f = (saldo_final_est[a] / patrimonio_final) * 100
             desvio = pct_f - (targets[a] * 100)
-            st.write(f"• **{a}:** {pct_f:.1f}% *(Alvo: {int(targets[a]*100)}% | Desvio: {desvio:+.1f} pp)*")
-            desvios.append(abs(desvio))
+            alocacoes_str.append(f"{a}: {pct_f:.1f}% (Alvo: {int(targets[a]*100)}% | Desvio: {desvio:+.1f} pp)")
+            
+        st.session_state["rebalancer_data"] = {
+            "patrimonio_atual": patrimonio_atual,
+            "capital": capital,
+            "total_investido": total_investido,
+            "caixa_residual": caixa_residual,
+            "df_res": df_res,
+            "alocacoes_str": alocacoes_str,
+            "melhor_compras": melhor_compras,
+            "investir_por_ativo": investir_por_ativo,
+            "saldo_final_est": saldo_final_est
+        }
+
+    if st.button("🚀 Calcular Ordem de Compra Otimizada", type="primary", use_container_width=True, key="btn_calc_rebalancer"):
+        processar_rebalanceamento()
+
+    if "rebalancer_data" in st.session_state:
+        reb = st.session_state["rebalancer_data"]
+        
+        st.markdown("---")
+        st.subheader("📊 Plano de Compra Sugerido (XTB)")
+        
+        st.dataframe(reb["df_res"], use_container_width=True, hide_index=True)
+        
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Patrimônio Atual", f"€{reb['patrimonio_atual']:,.2f}")
+        m2.metric("Total a Investir", f"€{reb['total_investido']:,.2f}")
+        m3.metric("Caixa Residual (Sobra)", f"€{reb['caixa_residual']:,.2f}")
+        
+        st.markdown("#### **Alocação Final Estimada após Aporte:**")
+        for aloc in reb["alocacoes_str"]:
+            st.write(f"• {aloc}")
+
+        # EXPORTAÇÃO TAB 2 (PDF E E-MAIL)
+        st.markdown("---")
+        st.subheader("📥 Exportação e Envio do Plano de Rebalanceamento")
+        col_pdf2, col_email2 = st.columns(2)
+        
+        data_hoje2 = datetime.now().strftime("%d/%m/%Y")
+
+        with col_pdf2:
+            st.markdown("#### **Salvar Plano em PDF**")
+            st.caption("Gere um documento PDF com as ordens de compra e valores finais.")
+            pdf_bytes2 = gerar_pdf_rebalanceamento(
+                reb["patrimonio_atual"], reb["capital"], reb["total_investido"],
+                reb["caixa_residual"], reb["df_res"].to_dict(orient="records"),
+                reb["alocacoes_str"], data_hoje2
+            )
+            st.download_button(
+                label="📄 Descarregar Plano em PDF",
+                data=pdf_bytes2,
+                file_name=f"Plano_Rebalanceamento_XTB_{datetime.now().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="btn_pdf_tab2"
+            )
+
+        with col_email2:
+            st.markdown("#### **Enviar Plano por E-mail**")
+            st.caption("Dispare o plano de compras e alocação para o seu e-mail.")
+            
+            email_destin2 = st.text_input("E-mail de Destino:", value=GMAIL_USER, key="dest_email_tab2")
+            
+            if st.button("📧 Enviar Plano por E-mail Agora", use_container_width=True, key="btn_email_tab2"):
+                corpo_email2 = (
+                    f"⚖️ Plano de Rebalanceamento de Carteira XTB\nData: {data_hoje2}\n\n"
+                    f"• Patrimônio Atual: €{reb['patrimonio_atual']:,.2f}\n"
+                    f"• Capital Disponível: €{reb['capital']:,.2f}\n"
+                    f"• Total a Investir: €{reb['total_investido']:,.2f}\n"
+                    f"• Caixa Residual (Sobra): €{reb['caixa_residual']:,.2f}\n\n"
+                    f"📝 Ordens de Compra Sugeridas:\n"
+                )
+                for rec in reb["df_res"].to_dict(orient="records"):
+                    corpo_email2 += f"  - {rec['ETF']}: {rec['Cotas a Comprar']} cotas ({rec['Investimento (€)']})\n"
+                
+                corpo_email2 += "\n📊 Alocação Final Estimada:\n"
+                for aloc in reb["alocacoes_str"]:
+                    corpo_email2 += f"  - {aloc}\n"
+                
+                corpo_email2 += "\n---\nAcesse o painel interativo em: https://etf-xtb-alerta.streamlit.app"
+                
+                sucesso, msg = enviar_email_relatorio(
+                    destinatario=email_destin2,
+                    assunto=f"Plano de Rebalanceamento XTB - {data_hoje2}",
+                    corpo_texto=corpo_email2
+                )
+                if sucesso:
+                    st.success(msg)
+                else:
+                    st.warning(msg)
 
 # Botão de Download Histórico
 st.markdown("---")
