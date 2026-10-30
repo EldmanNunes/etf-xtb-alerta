@@ -4,7 +4,7 @@
 # móveis (Golden Cross / Death Cross).
 # ==============================================================================
 
-name: Alerta 08:30 Lisboa
+name: Alerta Diário ETFs XTB 08:30
 
 on:
   schedule:
