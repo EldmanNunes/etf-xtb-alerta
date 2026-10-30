@@ -40,8 +40,8 @@ mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
 mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
 mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
 
-# Credenciais do Gmail
-GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", "eldman.nunes@gmail.com"))
+# Credenciais do Gmail obtidas de forma segura a partir dos Secrets do Streamlit Cloud
+GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", ""))
 GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
 
 # Consulta Automática à API Oficial do Eurostat para Inflação HICP
@@ -107,8 +107,10 @@ def sanitizar_pdf(texto: str) -> str:
     return texto.encode('latin-1', 'replace').decode('latin-1')
 
 def enviar_email_relatorio(destinatario, assunto, corpo_texto):
-    if not GMAIL_PASS:
-        return False, "Senha de aplicativo do Gmail (GMAIL_PASS) não configurada nos Secrets do Streamlit."
+    if not GMAIL_PASS or not GMAIL_USER:
+        return False, "Senha de aplicativo ou usuário do Gmail (GMAIL_USER / GMAIL_PASS) não configurados nos Secrets do Streamlit."
+    if not destinatario or "@" not in destinatario:
+        return False, "Por favor, introduza um e-mail de destino válido."
     try:
         msg = MIMEText(corpo_texto, 'plain', 'utf-8')
         msg['Subject'] = assunto
@@ -280,7 +282,7 @@ def monte_carlo_cambio(s0, dias=30, n_sim=10000, m_compra=5.95, m_venda=6.20, re
     fatores = np.exp((mu - 0.5 * sig**2) + sig * choques)
     
     precos = np.zeros((dias + 1, n_sim))
-    precos = s0
+    precos[0] = s0
     for t in range(1, dias + 1):
         precos[t] = precos[t-1] * fatores[t-1]
         
@@ -291,7 +293,7 @@ def monte_carlo_cambio(s0, dias=30, n_sim=10000, m_compra=5.95, m_venda=6.20, re
     prob_v = np.mean(max_caminhos >= m_venda) * 100
     prob_c = np.mean(min_caminhos <= m_compra) * 100
     
-    probabilidades = 
+    probabilidades = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 99]
     tabela_prob = []
     for p in probabilidades:
         alvo_compra = np.percentile(min_caminhos, p)
@@ -445,10 +447,12 @@ with tab1:
         st.markdown("#### **Enviar Relatório Técnico por E-mail**")
         st.caption("Dispare o relatório de diagnóstico diretamente para a sua caixa de entrada.")
         
-        email_destin1 = st.text_input("E-mail de Destino:", value=GMAIL_USER, key="dest_email_tab1")
+        email_destin1 = st.text_input("E-mail de Destino:", value="", placeholder="exemplo@email.com", key="dest_email_tab1")
         
         if st.button("📧 Enviar Relatório Técnico por E-mail Agora", use_container_width=True, key="btn_email_tab1"):
-            if itens_diagnostico:
+            if not email_destin1:
+                st.warning("⚠️ Por favor, introduza o e-mail de destino.")
+            elif itens_diagnostico:
                 corpo_email1 = f"📋 Relatório de Análise e Decisão de ETFs XTB\nData: {data_hoje}\n\n"
                 for item in itens_diagnostico:
                     corpo_email1 += (
@@ -682,36 +686,39 @@ with tab2:
             st.markdown("#### **Enviar Plano por E-mail**")
             st.caption("Dispare o plano de compras e alocação para o seu e-mail.")
             
-            email_destin2 = st.text_input("E-mail de Destino:", value=GMAIL_USER, key="dest_email_tab2")
+            email_destin2 = st.text_input("E-mail de Destino:", value="", placeholder="exemplo@email.com", key="dest_email_tab2")
             
             if st.button("📧 Enviar Plano por E-mail Agora", use_container_width=True, key="btn_email_tab2"):
-                corpo_email2 = (
-                    f"⚖️ Plano de Rebalanceamento de Carteira XTB\nData: {data_hoje2}\n\n"
-                    f"• Patrimônio Atual: €{reb['patrimonio_atual']:,.2f}\n"
-                    f"• Capital Disponível: €{reb['capital']:,.2f}\n"
-                    f"• Total a Investir: €{reb['total_investido']:,.2f}\n"
-                    f"• Caixa Residual (Sobra): €{reb['caixa_residual']:,.2f}\n\n"
-                    f"📝 Ordens de Compra Sugeridas:\n"
-                )
-                for rec in reb["df_res"].to_dict(orient="records"):
-                    corpo_email2 += f"  - {rec['ETF']}: {rec['Cotas a Comprar']} cotas ({rec['Investimento (€)']})\n"
-                
-                corpo_email2 += "\n📊 Alocação Final Estimada:\n"
-                for aloc in reb["alocacoes_str"]:
-                    corpo_email2 += f"  - {aloc}\n"
-                
-                app_domain = "etf-xtb-alerta." + "streamlit.app"
-                corpo_email2 += f"\n---\nAcesse o painel interativo em: https://{app_domain}"
-                
-                sucesso, msg = enviar_email_relatorio(
-                    destinatario=email_destin2,
-                    assunto=f"Plano de Rebalanceamento XTB - {data_hoje2}",
-                    corpo_texto=corpo_email2
-                )
-                if sucesso:
-                    st.success(msg)
+                if not email_destin2:
+                    st.warning("⚠️ Por favor, introduza o e-mail de destino.")
                 else:
-                    st.warning(msg)
+                    corpo_email2 = (
+                        f"⚖️ Plano de Rebalanceamento de Carteira XTB\nData: {data_hoje2}\n\n"
+                        f"• Patrimônio Atual: €{reb['patrimonio_atual']:,.2f}\n"
+                        f"• Capital Disponível: €{reb['capital']:,.2f}\n"
+                        f"• Total a Investir: €{reb['total_investido']:,.2f}\n"
+                        f"• Caixa Residual (Sobra): €{reb['caixa_residual']:,.2f}\n\n"
+                        f"📝 Ordens de Compra Sugeridas:\n"
+                    )
+                    for rec in reb["df_res"].to_dict(orient="records"):
+                        corpo_email2 += f"  - {rec['ETF']}: {rec['Cotas a Comprar']} cotas ({rec['Investimento (€)']})\n"
+                    
+                    corpo_email2 += "\n📊 Alocação Final Estimada:\n"
+                    for aloc in reb["alocacoes_str"]:
+                        corpo_email2 += f"  - {aloc}\n"
+                    
+                    app_domain = "etf-xtb-alerta." + "streamlit.app"
+                    corpo_email2 += f"\n---\nAcesse o painel interativo em: https://{app_domain}"
+                    
+                    sucesso, msg = enviar_email_relatorio(
+                        destinatario=email_destin2,
+                        assunto=f"Plano de Rebalanceamento XTB - {data_hoje2}",
+                        corpo_texto=corpo_email2
+                    )
+                    if sucesso:
+                        st.success(msg)
+                    else:
+                        st.warning(msg)
 
 # =========================================================
 # TAB 3: GESTÃO ANUAL DE SAQUE & REEQUILÍBRIO
@@ -879,39 +886,42 @@ with tab3:
             st.markdown("#### **Enviar Relatório de Saque por E-mail**")
             st.caption("Dispare a confirmação de saque e o novo equilíbrio de ativos para a sua caixa de e-mail.")
 
-            email_destin3 = st.text_input("E-mail de Destino:", value=GMAIL_USER, key="dest_email_tab3")
+            email_destin3 = st.text_input("E-mail de Destino:", value="", placeholder="exemplo@email.com", key="dest_email_tab3")
 
             if st.button("📧 Enviar Relatório de Saque por E-mail Agora", use_container_width=True, key="btn_email_tab3"):
-                corpo_email3 = (
-                    f"💸 Carteira Ideal UCITS - Gestão Anual de Saque & Reequilíbrio\n"
-                    f"Data da Operação: {data_venda_str}\n\n"
-                    f"• Patrimônio Inicial: €{sq['patrimonio_inicial']:,.2f}\n"
-                    f"• Inflação HICP: {hicp:.1f}%\n"
-                    f"• Saque Teórico (3.5% + HICP): €{sq['saque_teorico']:,.2f}\n"
-                    f"• Valor Efetivamente Sacado: €{sq['saque_efetivo']:,.2f}\n"
-                    f"• Ordem de Venda: PRAB ({sq['cotas_venda_prab']} cotas)\n\n"
-                    f"📊 Estado da Carteira Pós-Venda:\n"
-                )
-                for rec in sq["tabela_records"]:
-                    corpo_email3 += f"  - {rec['Ativo']}: Saldo {rec['Saldo (€)']} | % Atual: {rec['% Atual']} | Desvio: {rec['Desvio']}\n"
-
-                app_domain = "etf-xtb-alerta." + "streamlit.app"
-                corpo_email3 += (
-                    f"\n🟢 Status: Carteira Equilibrada (Desvios dentro da banda de ±5 pp).\n"
-                    f"• Probabilidade de sucesso: 98,7% por 30 anos.\n"
-                    f"• Cumpre Categoria G (28%) para residentes em Portugal.\n\n"
-                    f"---\nAcesse o painel interativo em: https://{app_domain}"
-                )
-
-                sucesso, msg = enviar_email_relatorio(
-                    destinatario=email_destin3,
-                    assunto=f"Plano de Saque Anual UCITS XTB - {data_venda_str}",
-                    corpo_texto=corpo_email3
-                )
-                if sucesso:
-                    st.success(msg)
+                if not email_destin3:
+                    st.warning("⚠️ Por favor, introduza o e-mail de destino.")
                 else:
-                    st.warning(msg)
+                    corpo_email3 = (
+                        f"💸 Carteira Ideal UCITS - Gestão Anual de Saque & Reequilíbrio\n"
+                        f"Data da Operação: {data_venda_str}\n\n"
+                        f"• Patrimônio Inicial: €{sq['patrimonio_inicial']:,.2f}\n"
+                        f"• Inflação HICP: {hicp:.1f}%\n"
+                        f"• Saque Teórico (3.5% + HICP): €{sq['saque_teorico']:,.2f}\n"
+                        f"• Valor Efetivamente Sacado: €{sq['saque_efetivo']:,.2f}\n"
+                        f"• Ordem de Venda: PRAB ({sq['cotas_venda_prab']} cotas)\n\n"
+                        f"📊 Estado da Carteira Pós-Venda:\n"
+                    )
+                    for rec in sq["tabela_records"]:
+                        corpo_email3 += f"  - {rec['Ativo']}: Saldo {rec['Saldo (€)']} | % Atual: {rec['% Atual']} | Desvio: {rec['Desvio']}\n"
+
+                    app_domain = "etf-xtb-alerta." + "streamlit.app"
+                    corpo_email3 += (
+                        f"\n🟢 Status: Carteira Equilibrada (Desvios dentro da banda de ±5 pp).\n"
+                        f"• Probabilidade de sucesso: 98,7% por 30 anos.\n"
+                        f"• Cumpre Categoria G (28%) para residentes em Portugal.\n\n"
+                        f"---\nAcesse o painel interativo em: https://{app_domain}"
+                    )
+
+                    sucesso, msg = enviar_email_relatorio(
+                        destinatario=email_destin3,
+                        assunto=f"Plano de Saque Anual UCITS XTB - {data_venda_str}",
+                        corpo_texto=corpo_email3
+                    )
+                    if sucesso:
+                        st.success(msg)
+                    else:
+                        st.warning(msg)
 
 # =========================================================
 # TAB 4: ANÁLISE CAMBIAL & PROJEÇÃO
@@ -1027,7 +1037,7 @@ with tab4:
     st.markdown("---")
     st.markdown("### 4. Matriz de Probabilidade de Alcance (10.000 Trajetórias Monte Carlo)")
     
-    col_mc1, col_mc2 = st.columns([1, 2])
+    col_mc1, col_mc2 = st.columns([2, 1])
     with col_mc1:
         st.dataframe(res_mc['tabela_prob'], use_container_width=True, hide_index=True)
     with col_mc2:
@@ -1078,31 +1088,34 @@ with tab4:
         st.markdown("#### **Enviar Relatório Cambial por E-mail**")
         st.caption("Dispare a análise cambial completa para a sua caixa de entrada.")
         
-        email_destin4 = st.text_input("E-mail de Destino:", value=GMAIL_USER, key="dest_email_tab4")
+        email_destin4 = st.text_input("E-mail de Destino:", value="", placeholder="exemplo@email.com", key="dest_email_tab4")
         
         if st.button("📧 Enviar Relatório Cambial por E-mail Agora", use_container_width=True, key="btn_email_tab4"):
-            corpo_email4 = (
-                f"💱 Relatório Integrado de Análise Cambial ({moeda_base}/{moeda_alvo})\n"
-                f"Data da Análise: {data_hoje4}\n\n"
-                f"• Cotação Spot Atual: {moeda_alvo} {s0:.4f}\n"
-                f"• Compra Efetiva (+{spread_pct}% spread): {moeda_alvo} {s_compra:.4f}\n"
-                f"• Venda Efetiva (-{spread_pct}% spread): {moeda_alvo} {s_venda:.4f}\n"
-                f"• Z-Score: {z_score:.2f} std ({diag})\n\n"
-                f"🔮 Projeção ARIMA (30 dias úteis): {moeda_alvo} {df_proj['ARIMA'].iloc[-1]:.2f}\n"
-                f"• Meta de Compra: {moeda_alvo} {meta_compra:.2f} (Probabilidade: {res_mc['prob_compra']:.1f}%)\n"
-                f"• Meta de Venda: {moeda_alvo} {meta_venda:.2f} (Probabilidade: {res_mc['prob_venda']:.1f}%)\n\n"
-                f"---\nAcesse o painel interativo em: https://{app_domain}"
-            )
-            
-            sucesso, msg = enviar_email_relatorio(
-                destinatario=email_destin4,
-                assunto=f"Relatório Cambial {moeda_base}/{moeda_alvo} - {data_hoje4}",
-                corpo_texto=corpo_email4
-            )
-            if sucesso:
-                st.success(msg)
+            if not email_destin4:
+                st.warning("⚠️ Por favor, introduza o e-mail de destino.")
             else:
-                st.warning(msg)
+                corpo_email4 = (
+                    f"💱 Relatório Integrado de Análise Cambial ({moeda_base}/{moeda_alvo})\n"
+                    f"Data da Análise: {data_hoje4}\n\n"
+                    f"• Cotação Spot Atual: {moeda_alvo} {s0:.4f}\n"
+                    f"• Compra Efetiva (+{spread_pct}% spread): {moeda_alvo} {s_compra:.4f}\n"
+                    f"• Venda Efetiva (-{spread_pct}% spread): {moeda_alvo} {s_venda:.4f}\n"
+                    f"• Z-Score: {z_score:.2f} std ({diag})\n\n"
+                    f"🔮 Projeção ARIMA (30 dias úteis): {moeda_alvo} {df_proj['ARIMA'].iloc[-1]:.2f}\n"
+                    f"• Meta de Compra: {moeda_alvo} {meta_compra:.2f} (Probabilidade: {res_mc['prob_compra']:.1f}%)\n"
+                    f"• Meta de Venda: {moeda_alvo} {meta_venda:.2f} (Probabilidade: {res_mc['prob_venda']:.1f}%)\n\n"
+                    f"---\nAcesse o painel interativo em: https://{app_domain}"
+                )
+                
+                sucesso, msg = enviar_email_relatorio(
+                    destinatario=email_destin4,
+                    assunto=f"Relatório Cambial {moeda_base}/{moeda_alvo} - {data_hoje4}",
+                    corpo_texto=corpo_email4
+                )
+                if sucesso:
+                    st.success(msg)
+                else:
+                    st.warning(msg)
 
 # Botão de Download Histórico
 st.markdown("---")
