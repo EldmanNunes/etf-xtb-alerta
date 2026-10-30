@@ -1,3 +1,9 @@
+# ==============================================================================
+# Descrição: Executa a análise diária do mercado cambial (EUR/BRL) às 08:30
+# e avisa por e-mail quando a cotação estiver num momento estatisticamente
+# favorável de compra (Z-Score e Bollinger).
+# ==============================================================================
+
 name: Alerta Diário de Câmbio 08:30
 
 on:
