@@ -1,0 +1,41 @@
+# ==============================================================================
+# Descrição: Executa a análise diária do mercado cambial (EUR/BRL) às 08:30
+# e avisa por e-mail quando a cotação estiver num momento estatisticamente
+# favorável de compra (Z-Score e Bollinger).
+# ==============================================================================
+
+name: Alerta Diário de Câmbio 08:30
+
+on:
+  schedule:
+    - cron: '30 8 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  analise-cambio:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do Repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar Dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests
+
+      - name: Executar Script de Alerta Cambial
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
+          GMAIL_DESTINO: ${{ secrets.GMAIL_DESTINO }}
+          MOEDA_BASE: 'EUR'
+          MOEDA_ALVO: 'BRL'
+          SPREAD_PCT: '1.5'
+          META_COMPRA: '0.0'
+        run: |
+          python alerta_cambial_0830.py

@@ -1,4 +1,10 @@
-name: Alerta 08:30 Lisboa
+# ==============================================================================
+# Descrição: Executa a análise diária dos ETFs da XTB (PRAB, XDEQ, IBCI) às 08:30
+# e envia alertas por e-mail quando identifica sinais de cruzamento de médias
+# móveis (Golden Cross / Death Cross).
+# ==============================================================================
+
+name: Alerta Diário ETFs XTB 08:30
 
 on:
   schedule:
@@ -26,4 +32,4 @@ jobs:
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
-        run: python alerta_0830.py
+        run: python alerta_etfs_0830.py
