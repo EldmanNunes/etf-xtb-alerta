@@ -1,3 +1,9 @@
+# ==============================================================================
+# Descrição: Executa a análise diária dos ETFs da XTB (PRAB, XDEQ, IBCI) às 08:30
+# e envia alertas por e-mail quando identifica sinais de cruzamento de médias
+# móveis (Golden Cross / Death Cross).
+# ==============================================================================
+
 name: Alerta 08:30 Lisboa
 
 on:
