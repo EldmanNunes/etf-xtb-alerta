@@ -134,7 +134,7 @@ def gerar_pdf_relatorio(itens_diagnostico, df_resumo_num, matriz_corr, data_str)
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font('Helvetica', 'B', 15)
-    pdf.cell(pdf.epw, 9, sanitizar_pdf('ETF Tracker XTB - Relatório Interpretativo & Técnico (v3.0)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.cell(pdf.epw, 9, sanitizar_pdf('ETF Tracker XTB - Relatório Interpretativo & Técnico (v3.1)'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.set_font('Helvetica', 'I', 9)
     pdf.cell(pdf.epw, 5, sanitizar_pdf(f'Data de Emissao: {data_str} | Bolsa: Xetra (EUR) | Fonte: yfinance (Fecho Oficial)'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.ln(4)
@@ -408,9 +408,9 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     etfs_selecionados = list(ETF_MAP.keys())
     
-    # Banner de Metadados de Auditoria e Rastreabilidade (v3.0)
+    # Banner de Metadados de Auditoria e Rastreabilidade (v3.1)
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.0):** Atualizado em: {data_hora_atual} UTC | Bolsa: Xetra (EUR) | Fonte: yfinance (Fecho Oficial)")
+    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.1):** Atualizado em: {data_hora_atual} UTC | Bolsa: Xetra (EUR) | Fonte: yfinance (Fecho Oficial)")
 
     if not dados.empty:
         cols = st.columns(len(etfs_selecionados))
@@ -429,8 +429,25 @@ with tab1:
 
     st.markdown("---")
 
-    # 1. Tabela de Resumo Numérico dos Indicadores
-    st.subheader("📊 Tabela de Resumo Numérico dos Indicadores Técnicos")
+    # 1. Posição da Carteira para Integração da Alocação-Alvo (Fase 2)
+    st.markdown("### 💼 Cruzamento Integrado: Sinal Técnico vs. Alocação Atual da Carteira (Fase 2)")
+    with st.expander("⚙️ Ajustar Posição Atual do Portfólio (para Cruzamento com Alvo Estratégico)", expanded=False):
+        col_p1, col_p2, col_p3 = st.columns(3)
+        with col_p1:
+            val_prab = st.number_input("Valor Investido PRAB (€):", value=2500.0, step=100.0, key="val_prab_t1")
+        with col_p2:
+            val_xdeq = st.number_input("Valor Investido XDEQ (€):", value=3000.0, step=100.0, key="val_xdeq_t1")
+        with col_p3:
+            val_ibci = st.number_input("Valor Investido IBCI (€):", value=4500.0, step=100.0, key="val_ibci_t1")
+
+    valores_atuais_port = {
+        "PRAB - Amundi 0-1Y": val_prab,
+        "XDEQ - World Quality": val_xdeq,
+        "IBCI - Inflation Linked": val_ibci
+    }
+    total_port_t1 = sum(valores_atuais_port.values()) if sum(valores_atuais_port.values()) > 0 else 1.0
+
+    st.subheader("📊 Tabela de Resumo Numérico dos Indicadores Técnicos & Alocação")
     registos_numericos = []
     itens_diagnostico = []
 
@@ -473,19 +490,39 @@ with tab1:
                     status_acao = "🟡 [AGUARDAR / NÃO REFORÇAR]"
                     explicacao = f"Tendência primária desfavorável (MA50 < MA200 por {diff_ma_pct:.1f}%, RSI: {rsi:.1f}). Suspender novos aportes. Liquidação recomendada apenas para reequilíbrio estrito."
 
+            # Cruzamento com a Alocação Alvo Estratégica (Fase 2)
+            peso_atual_pct = (valores_atuais_port.get(nome, 0.0) / total_port_t1) * 100
+            peso_alvo_pct = ETF_MAP[nome]["target_pct"] * 100
+            
+            if status_acao.startswith("🟢"):
+                if peso_atual_pct >= peso_alvo_pct + 1.0:
+                    status_integrado = "🟡 [AGUARDAR REBALANCEAMENTO - SOBREPONDERADO]"
+                    explicacao_integrada = f"Sinal técnico positivo ativo ({status_acao}), contudo o ativo já ultrapassou o seu alvo na carteira ({peso_atual_pct:.1f}% vs {peso_alvo_pct:.1f}%). Redirecionar aportes para ativos subponderados."
+                else:
+                    status_integrado = "🟢 [COMPRA RECOMENDADA - SUBPONDERADO]"
+                    explicacao_integrada = f"Sinal técnico favorável e ativo subponderado na carteira ({peso_atual_pct:.1f}% vs alvo de {peso_alvo_pct:.1f}%). Aporte prioritário."
+            elif status_acao.startswith("🔴"):
+                if peso_atual_pct >= peso_alvo_pct + 1.0:
+                    status_integrado = "🔴 [REDUZIR / REBALANCEAR PRIORITÁRIO]"
+                    explicacao_integrada = f"Ativo em fraqueza técnica e sobreponderado ({peso_atual_pct:.1f}% vs {peso_alvo_pct:.1f}%). Candidato prioritário para reequilíbrio."
+                else:
+                    status_integrado = "🟡 [AGUARDAR - DENTRO DO ALVO]"
+                    explicacao_integrada = f"Tendência desfavorável, contudo o ativo não está sobreponderado ({peso_atual_pct:.1f}% vs {peso_alvo_pct:.1f}%). Manter sem novas compras."
+            else:
+                status_integrado = status_acao
+                explicacao_integrada = explicacao + f" (Alocação Atual: {peso_atual_pct:.1f}% vs Alvo: {peso_alvo_pct:.1f}%)."
+
             registos_numericos.append({
                 "Ativo": ETF_MAP[nome]["nome"],
                 "Ticker": ticker,
                 "Preço (€)": round(preco, 2),
                 "MA50 (€)": round(ma50, 2),
                 "MA200 (€)": round(ma200, 2),
-                "Dif MA (%)": f"{diff_ma_pct:+.2f}%",
-                "BB Inf (€)": round(bb_inf, 2),
-                "BB Média (€)": round(bb_mid, 2),
-                "BB Sup (€)": round(bb_sup, 2),
                 "RSI (14)": round(rsi, 1),
-                "MACD Hist": round(macd_hist, 3),
-                "Sinal Recomendado": status_acao
+                "Aloc. Atual": f"{peso_atual_pct:.1f}%",
+                "Aloc. Alvo": f"{peso_alvo_pct:.1f}%",
+                "Sinal Técnico": status_acao,
+                "Decisão Integrada": status_integrado
             })
 
             itens_diagnostico.append({
@@ -494,9 +531,9 @@ with tab1:
                 "preco": preco,
                 "ma50": ma50,
                 "ma200": ma200,
-                "acao": status_acao,
+                "acao": status_integrado,
                 "rsi": rsi,
-                "explicacao": explicacao
+                "explicacao": explicacao_integrada
             })
 
     df_resumo_num = pd.DataFrame(registos_numericos)
@@ -542,7 +579,7 @@ with tab1:
             if not email_destin1:
                 st.warning("⚠️ Por favor, introduza o e-mail de destino.")
             elif itens_diagnostico:
-                corpo_email1 = f"📋 Relatório de Análise e Decisão de ETFs XTB (v3.0)\nData: {data_hoje}\n\n"
+                corpo_email1 = f"📋 Relatório de Análise e Decisão de ETFs XTB (v3.1)\nData: {data_hoje}\n\n"
                 for item in itens_diagnostico:
                     corpo_email1 += (
                         f"📌 {item['nome']} ({item['ticker']})\n"
@@ -568,6 +605,8 @@ with tab1:
 # TAB 2: CALCULADORA DE REBALANCEAMENTO
 # =========================================================
 with tab2:
+    data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
+    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.1):** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Versão: v3.1 (Fase 2 Integrada)")
     st.subheader("⚖️ Calculadora de Rebalanceamento XTB por Novo Aporte")
     st.caption("Alocação Alvo Estratégica: PRAB (25%) | IBCI (45%) | XDEQ (30%)")
     
@@ -749,6 +788,8 @@ with tab2:
 # TAB 3: GESTÃO ANUAL DE SAQUE & REEQUILÍBRIO
 # =========================================================
 with tab3:
+    data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
+    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.1):** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.1 (Fase 2 Integrada)")
     st.subheader("💸 Gestão Anual de Saque & Reequilíbrio UCITS")
     st.caption("Estratégia Defensiva v2.0 | Probabilidade de Sucesso Histórica: 98,7% por 30 Anos")
 
