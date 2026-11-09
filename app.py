@@ -20,9 +20,27 @@ st.title("📊 ETF Tracker, Rebalancer & Análise Cambial XTB")
 
 # Mapeamento e Alvos Estratégicos dos ETFs
 ETF_MAP = {
-    "PRAB - Amundi 0-1Y": {"ticker": "PRAB.DE", "target_pct": 0.25, "nome": "Amundi 0-1Y"},
-    "XDEQ - World Quality": {"ticker": "XDEQ.DE", "target_pct": 0.30, "nome": "World Quality"},
-    "IBCI - Inflation Linked": {"ticker": "IBCI.DE", "target_pct": 0.45, "nome": "Inflation Linked"}
+    "PRAB - Amundi 0-1Y": {
+        "ticker": "PRAB.DE", "target_pct": 0.25, "nome": "Amundi 0-1Y",
+        "isin": "LU2233156582", "ter": "0.09% p.a.",
+        "classe": "Renda Fixa Soberana Curto Prazo (Cash Equivalent)",
+        "indice": "Solactive 0-1 Year Euro Government Bond Index",
+        "politica": "Acumulação"
+    },
+    "XDEQ - World Quality": {
+        "ticker": "XDEQ.DE", "target_pct": 0.30, "nome": "World Quality",
+        "isin": "IE00BL25JP72", "ter": "0.25% p.a.",
+        "classe": "Ações Globais (Factor Quality Equity)",
+        "indice": "MSCI World Quality Index",
+        "politica": "Acumulação"
+    },
+    "IBCI - Inflation Linked": {
+        "ticker": "IBCI.DE", "target_pct": 0.45, "nome": "Inflation Linked",
+        "isin": "IE00B0M62X26", "ter": "0.09% p.a.",
+        "classe": "Renda Fixa Soberana Inflação (Zona Euro)",
+        "indice": "Bloomberg Euro Government Inflation-Linked Bond Index",
+        "politica": "Acumulação"
+    }
 }
 
 # Sidebar - Configurações Gerais
@@ -134,7 +152,7 @@ def gerar_pdf_relatorio(itens_diagnostico, df_resumo_num, matriz_corr, data_str)
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font('Helvetica', 'B', 15)
-    pdf.cell(pdf.epw, 9, sanitizar_pdf('ETF Tracker XTB - Relatório Interpretativo & Técnico (v3.1)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.cell(pdf.epw, 9, sanitizar_pdf('ETF Tracker XTB - Relatório Interpretativo & Técnico (v3.2)'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.set_font('Helvetica', 'I', 9)
     pdf.cell(pdf.epw, 5, sanitizar_pdf(f'Data de Emissao: {data_str} | Bolsa: Xetra (EUR) | Fonte: yfinance (Fecho Oficial)'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.ln(4)
@@ -552,6 +570,34 @@ with tab1:
     st.dataframe(df_resumo_num, use_container_width=True)
 
     st.markdown("---")
+    st.subheader("📑 Fichas Técnicas & Métricas de Perfil de Risco (Fase 3)")
+    with st.expander("ℹ️ Ver Fichas Técnicas UCITS, ISIN, TER e Métricas Históricas de Risco", expanded=True):
+        col_f1, col_f2, col_f3 = st.columns(3)
+        cols_f = [col_f1, col_f2, col_f3]
+        for idx, (nome_etf, meta_etf) in enumerate(ETF_MAP.items()):
+            tk = meta_etf["ticker"]
+            with cols_f[idx]:
+                st.markdown(f"#### **{meta_etf['nome']}**")
+                st.write(f"• **Ticker:** `{tk}` (Bolsa Xetra / EUR)")
+                st.write(f"• **ISIN:** `{meta_etf['isin']}`")
+                st.write(f"• **TER (Custo Anual):** {meta_etf['ter']}")
+                st.write(f"• **Classe de Ativos:** {meta_etf['classe']}")
+                st.write(f"• **Índice de Referência:** {meta_etf['indice']}")
+                st.write(f"• **Política:** {meta_etf['politica']}")
+                
+                # Cálculo Dinâmico de Risco Histórico
+                if tk in dados.columns:
+                    s_hist = dados[tk].dropna()
+                    if len(s_hist) > 20:
+                        ret_d = s_hist.pct_change().dropna()
+                        vol_anual = ret_d.std() * np.sqrt(252) * 100
+                        peak = s_hist.cummax()
+                        dd = (s_hist - peak) / peak
+                        max_dd = dd.min() * 100
+                        st.write(f"• **Volatilidade Anualizada:** {vol_anual:.1f}%")
+                        st.write(f"• **Maximum Drawdown Hist.:** {max_dd:.1f}%")
+
+    st.markdown("---")
     st.subheader("📋 Relatório Dinâmico: Decisão Prática do Portfólio")
     
     with st.expander("🔍 Ver Diagnóstico Operacional Detalhado por ETF", expanded=True):
@@ -618,7 +664,7 @@ with tab1:
 # =========================================================
 with tab2:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.1):** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Versão: v3.1 (Fase 2 Integrada)")
+    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.1):** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Versão: v3.2 (Fase 3 Completa - Fichas Técnicas & Risco)")
     st.subheader("⚖️ Calculadora de Rebalanceamento XTB por Novo Aporte")
     st.caption("Alocação Alvo Estratégica: PRAB (25%) | IBCI (45%) | XDEQ (30%)")
     
@@ -801,7 +847,7 @@ with tab2:
 # =========================================================
 with tab3:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.1):** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.1 (Fase 2 Integrada)")
+    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.1):** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.2 (Fase 3 Completa - Fichas Técnicas & Risco)")
     st.subheader("💸 Gestão Anual de Saque & Reequilíbrio UCITS")
     st.caption("Estratégia Defensiva v2.0 | Probabilidade de Sucesso Histórica: 98,7% por 30 Anos")
 
