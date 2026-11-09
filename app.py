@@ -40,10 +40,11 @@ mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
 mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
 mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
 
-# Credenciais do Gmail obtidas de forma segura a partir dos Secrets do Streamlit Cloud
+# Credenciais do Gmail
 GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", ""))
 GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
 
+# Domínio da Aplicação Streamlit (Garantido em todas as Abas)
 APP_DOMAIN = st.secrets.get("APP_DOMAIN", os.getenv("APP_DOMAIN", "etf-xtb-alerta.streamlit.app"))
 app_domain = APP_DOMAIN
 
@@ -102,8 +103,8 @@ def calcular_indicadores_etf(serie):
 # Helper para PDF
 def sanitizar_pdf(texto: str) -> str:
     replacements = {
-        '•': '-', '€': 'EUR', '🟢': '[COMPRA]', '🟡': '[AGUARDAR]', '🔴': '[VENDA]',
-        '📌': '-', '⚠️': '[Aviso]', '📊': '', '📋': '', '🔍': '', '📈': '', '⚖️': '', '💡': '', '🚀': '', '💸': '', '💱': ''
+        '•': '-', '€': 'EUR', '🟢': '[COMPRAR]', '🔵': '[MANTER]', '🟡': '[AGUARDAR]', '🔴': '[REDUZIR]',
+        '📌': '-', '⚠️': '[Aviso]', '📊': '', '📋': '', '🔍': '', '📈': '', '⚖️': '', '💡': '', '🚀': '', '💸': '', '💱': '', 'ℹ️': '[Info]'
     }
     for orig, repl in replacements.items():
         texto = texto.replace(orig, repl)
@@ -129,31 +130,77 @@ def enviar_email_relatorio(destinatario, assunto, corpo_texto):
         return False, f"Falha ao enviar e-mail: {str(e)}"
 
 # GERADORES DE PDF PARA CADA ABA
-def gerar_pdf_relatorio(itens_diagnostico, data_str):
+def gerar_pdf_relatorio(itens_diagnostico, df_resumo_num, matriz_corr, data_str):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font('Helvetica', 'B', 16)
-    pdf.cell(pdf.epw, 10, sanitizar_pdf('ETF Tracker XTB - Relatório Interpretativo'), new_x='LMARGIN', new_y='NEXT', align='C')
-    pdf.set_font('Helvetica', 'I', 10)
-    pdf.cell(pdf.epw, 6, sanitizar_pdf(f'Data de emissao: {data_str} | Bolsa Xetra'), new_x='LMARGIN', new_y='NEXT', align='C')
-    pdf.ln(5)
+    pdf.set_font('Helvetica', 'B', 15)
+    pdf.cell(pdf.epw, 9, sanitizar_pdf('ETF Tracker XTB - Relatório Interpretativo & Técnico (v3.0)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.set_font('Helvetica', 'I', 9)
+    pdf.cell(pdf.epw, 5, sanitizar_pdf(f'Data de Emissao: {data_str} | Bolsa: Xetra (EUR) | Fonte: yfinance (Fecho Oficial)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.ln(4)
 
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(pdf.epw, 8, sanitizar_pdf('1. Diagnóstico de Decisão por Ativo'), new_x='LMARGIN', new_y='NEXT')
+    # 1. Tabela Resumo Numérico
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(pdf.epw, 7, sanitizar_pdf('1. Tabela Resumo dos Indicadores Técnicos'), new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(2)
+
+    if df_resumo_num is not None and not df_resumo_num.empty:
+        headers = ['Ativo', 'Preco', 'MA50', 'MA200', 'Dif MA', 'BB Inf', 'BB Sup', 'RSI', 'Sinal']
+        table_rows = [headers]
+        for _, r in df_resumo_num.iterrows():
+            table_rows.append([
+                str(r['Ativo']),
+                f"EUR {r['Preço (€)']:.2f}",
+                f"EUR {r['MA50 (€)']:.2f}",
+                f"EUR {r['MA200 (€)']:.2f}",
+                str(r['Dif MA (%)']),
+                f"EUR {r['BB Inf (€)']:.2f}",
+                f"EUR {r['BB Sup (€)']:.2f}",
+                f"{r['RSI (14)']:.1f}",
+                str(r['Sinal Recomendado'])
+            ])
+        with pdf.table() as table:
+            for row in table_rows:
+                row_cells = table.row()
+                for datum in row:
+                    row_cells.cell(sanitizar_pdf(datum))
+    pdf.ln(4)
+
+    # 2. Diagnóstico Operacional por Ativo
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(pdf.epw, 7, sanitizar_pdf('2. Diagnóstico de Decisão e Ação Prática por Ativo'), new_x='LMARGIN', new_y='NEXT')
     pdf.ln(2)
 
     for item in itens_diagnostico:
+        pdf.set_font('Helvetica', 'B', 10)
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- {item['nome']} ({item['ticker']})"), new_x='LMARGIN', new_y='NEXT')
+        pdf.set_font('Helvetica', '', 9)
+        pdf.multi_cell(pdf.epw, 4, sanitizar_pdf(f"  Preço de Fecho: EUR {item['preco']:.2f} | MA50: EUR {item['ma50']:.2f} | MA200: EUR {item['ma200']:.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 4, sanitizar_pdf(f"  Sinal Recomendado: {item['acao']} (RSI 14: {item['rsi']:.1f})"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 4, sanitizar_pdf(f"  Diagnóstico: {item['explicacao']}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.ln(2)
+
+    # 3. Matriz de Correlação
+    if matriz_corr is not None and not matriz_corr.empty:
         pdf.set_font('Helvetica', 'B', 11)
-        pdf.multi_cell(pdf.epw, 6, sanitizar_pdf(f"- {item['nome']} ({item['ticker']})"), new_x='LMARGIN', new_y='NEXT')
-        pdf.set_font('Helvetica', '', 10)
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"  Preço de Fecho: EUR {item['preco']:.2f}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"  Ação Recomendada: {item['acao']}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"  RSI (14): {item['rsi']:.1f}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"  Diagnóstico: {item['explicacao']}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.ln(3)
+        pdf.cell(pdf.epw, 7, sanitizar_pdf('3. Matriz de Correlação dos Retornos Diários'), new_x='LMARGIN', new_y='NEXT')
+        pdf.ln(2)
+
+        corr_headers = ['ETF'] + list(matriz_corr.columns)
+        table_data = [corr_headers]
+        for idx_c, row_c in matriz_corr.iterrows():
+            r_list = [str(idx_c)]
+            for val in row_c:
+                r_list.append(f"{val:.2f}")
+            table_data.append(r_list)
+
+        with pdf.table() as table:
+            for row in table_data:
+                row_cells = table.row()
+                for datum in row:
+                    row_cells.cell(sanitizar_pdf(datum))
 
     return bytes(pdf.output())
-
 def gerar_pdf_rebalanceamento(patrimonio_atual, capital, total_investido, caixa_residual, df_res_records, alocacoes_str, data_str):
     pdf = FPDF()
     pdf.add_page()
@@ -224,8 +271,7 @@ def obter_dados_cambio(base='EUR', alvo='BRL', inicio='2024-01-01'):
         if r.status_code == 200:
             data = r.json().get('rates', {})
             df = pd.DataFrame([{'date': pd.to_datetime(d), 'rate': v[alvo]} for d, v in data.items()])
-            df.set_index('date', inplace=True)
-            df.sort_index(inplace=True)
+            df = df.set_index('date').sort_index()
             return df
     except Exception:
         pass
@@ -234,7 +280,8 @@ def obter_dados_cambio(base='EUR', alvo='BRL', inicio='2024-01-01'):
     np.random.seed(42)
     ret = np.random.normal(0.0001, 0.006, len(datas))
     precos = 5.9563 * np.exp(np.cumsum(ret) - np.cumsum(ret)[-1])
-    return pd.DataFrame({'rate': precos}, index=datas)
+    df = pd.DataFrame({'rate': precos}, index=datas)
+    return df
 
 def calcular_indicadores_cambio(df):
     df = df.copy()
@@ -361,6 +408,10 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     etfs_selecionados = list(ETF_MAP.keys())
     
+    # Banner de Metadados de Auditoria e Rastreabilidade (v3.0)
+    data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
+    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.0):** Atualizado em: {data_hora_atual} UTC | Bolsa: Xetra (EUR) | Fonte: yfinance (Fecho Oficial)")
+
     if not dados.empty:
         cols = st.columns(len(etfs_selecionados))
         for idx, nome in enumerate(etfs_selecionados):
@@ -378,54 +429,89 @@ with tab1:
 
     st.markdown("---")
 
+    # 1. Tabela de Resumo Numérico dos Indicadores
+    st.subheader("📊 Tabela de Resumo Numérico dos Indicadores Técnicos")
+    registos_numericos = []
+    itens_diagnostico = []
+
+    matriz_corr_df = pd.DataFrame()
+    if not dados.empty:
+        retornos_temp = dados.pct_change().dropna()
+        matriz_corr_df = retornos_temp.corr()
+
+    for nome in etfs_selecionados:
+        ticker = ETF_MAP[nome]["ticker"]
+        if ticker in dados.columns:
+            serie = dados[ticker].dropna()
+            df_ind = calcular_indicadores_etf(serie)
+            
+            preco = df_ind['Preco'].iloc[-1]
+            ma50 = df_ind['MA50'].iloc[-1]
+            ma200 = df_ind['MA200'].iloc[-1]
+            diff_ma_pct = ((ma50 - ma200) / ma200) * 100 if ma200 > 0 else 0.0
+            bb_inf = df_ind['BB_Lower'].iloc[-1]
+            bb_mid = df_ind['BB_Mid'].iloc[-1]
+            bb_sup = df_ind['BB_Upper'].iloc[-1]
+            rsi = df_ind['RSI'].iloc[-1]
+            macd_hist = df_ind['MACD_Hist'].iloc[-1]
+            
+            if ma50 > ma200:
+                if rsi > 70:
+                    status_acao = "🟡 [AGUARDAR / NÃO REFORÇAR]"
+                    explicacao = f"Tendência primária de alta (MA50 > MA200 por +{diff_ma_pct:.1f}%), mas o ativo está temporariamente sobrecomprado (RSI: {rsi:.1f}). Aguarde um recuo antes de aportar."
+                elif rsi < 35:
+                    status_acao = "🟢 [COMPRAR / REFORÇAR]"
+                    explicacao = f"Tendência primária de alta (MA50 > MA200 por +{diff_ma_pct:.1f}%) com recuo tático de curto prazo (RSI: {rsi:.1f}). Excelente oportunidade para reforço."
+                else:
+                    status_acao = "🔵 [MANTER / NEUTRO]"
+                    explicacao = f"Tendência de alta consistente (MA50 > MA200 por +{diff_ma_pct:.1f}%) e osciladores em nível equilibrado (RSI: {rsi:.1f}). Manter a alocação estratégica."
+            else:
+                if rsi < 30:
+                    status_acao = "🟡 [AGUARDAR / NÃO REFORÇAR]"
+                    explicacao = f"Tendência de curto/médio prazo de baixa (MA50 < MA200 por {diff_ma_pct:.1f}%), mas o RSI ({rsi:.1f}) indica sobrevenda. Não realizar vendas precipitadas no fundo."
+                else:
+                    status_acao = "🟡 [AGUARDAR / NÃO REFORÇAR]"
+                    explicacao = f"Tendência primária desfavorável (MA50 < MA200 por {diff_ma_pct:.1f}%, RSI: {rsi:.1f}). Suspender novos aportes. Liquidação recomendada apenas para reequilíbrio estrito."
+
+            registos_numericos.append({
+                "Ativo": ETF_MAP[nome]["nome"],
+                "Ticker": ticker,
+                "Preço (€)": round(preco, 2),
+                "MA50 (€)": round(ma50, 2),
+                "MA200 (€)": round(ma200, 2),
+                "Dif MA (%)": f"{diff_ma_pct:+.2f}%",
+                "BB Inf (€)": round(bb_inf, 2),
+                "BB Média (€)": round(bb_mid, 2),
+                "BB Sup (€)": round(bb_sup, 2),
+                "RSI (14)": round(rsi, 1),
+                "MACD Hist": round(macd_hist, 3),
+                "Sinal Recomendado": status_acao
+            })
+
+            itens_diagnostico.append({
+                "nome": nome,
+                "ticker": ticker,
+                "preco": preco,
+                "ma50": ma50,
+                "ma200": ma200,
+                "acao": status_acao,
+                "rsi": rsi,
+                "explicacao": explicacao
+            })
+
+    df_resumo_num = pd.DataFrame(registos_numericos)
+    st.dataframe(df_resumo_num, use_container_width=True)
+
+    st.markdown("---")
     st.subheader("📋 Relatório Dinâmico: Decisão Prática do Portfólio")
     
-    itens_diagnostico = []
-    
-    with st.expander("🔍 Ver Situação e Ação Prática por ETF", expanded=True):
-        for nome in etfs_selecionados:
-            ticker = ETF_MAP[nome]["ticker"]
-            if ticker in dados.columns:
-                serie = dados[ticker].dropna()
-                df_ind = calcular_indicadores_etf(serie)
-                
-                preco = df_ind['Preco'].iloc[-1]
-                ma50 = df_ind['MA50'].iloc[-1]
-                ma200 = df_ind['MA200'].iloc[-1]
-                rsi = df_ind['RSI'].iloc[-1]
-                
-                if ma50 > ma200:
-                    if rsi > 70:
-                        status_acao = "🟡 DESFAVORÁVEL À COMPRA (Preço Esticado)"
-                        explicacao = f"A tendência geral é positiva, mas o preço subiu muito rápido (RSI: {rsi:.1f}). Aguarde uma pausa antes de novos aportes."
-                    elif rsi < 35:
-                        status_acao = "🟢 VALORIZADO PARA COMPRA (Preço em Desconto)"
-                        explicacao = f"A tendência de longo prazo é de alta e o preço sofreu um recuo pontual (RSI: {rsi:.1f}). Excelente momento para aportar."
-                    else:
-                        status_acao = "🟢 FAVORÁVEL À COMPRA / MANTER"
-                        explicacao = f"Tendência de alta ativa e preço em ritmo equilibrado (RSI: {rsi:.1f}). Favorável para manter ou reforçar."
-                else:
-                    if rsi < 30:
-                        status_acao = "🟡 DESFAVORÁVEL À VENDA (Sobrevendido)"
-                        explicacao = f"O ativo está em tendência de baixa, mas o preço já caiu excessivamente (RSI: {rsi:.1f}). Vender agora pode significar sair no fundo."
-                    else:
-                        status_acao = "🔴 FAVORÁVEL À VENDA / EVITAR"
-                        explicacao = f"Tendência primária de baixa confirmada (MA50 < MA200). Evite novas compras até sinal de recuperação."
-                
-                itens_diagnostico.append({
-                    "nome": nome,
-                    "ticker": ticker,
-                    "preco": preco,
-                    "acao": status_acao,
-                    "rsi": rsi,
-                    "explicacao": explicacao
-                })
-
-                st.markdown(f"### 📌 {nome} (`{ticker}`)")
-                st.write(f"- **Cotação Atual:** €{preco:.2f}")
-                st.markdown(f"- **Ação Recomendada:** `{status_acao}`")
-                st.write(f"- **Diagnóstico Direto:** {explicacao}")
-                st.markdown("---")
+    with st.expander("🔍 Ver Diagnóstico Operacional Detalhado por ETF", expanded=True):
+        for item in itens_diagnostico:
+            st.markdown(f"### 📌 {item['nome']} (`{item['ticker']}`)")
+            st.write(f"- **Cotação Atual:** €{item['preco']:.2f} | **MA50:** €{item['ma50']:.2f} | **MA200:** €{item['ma200']:.2f}")
+            st.markdown(f"- **Sinal Operacional:** `{item['acao']}`")
+            st.write(f"- **Diagnóstico Direto:** {item['explicacao']}")
+            st.markdown("---")
 
     st.subheader("📥 Exportação e Envio do Relatório Técnico")
     col_pdf1, col_email1 = st.columns(2)
@@ -434,9 +520,9 @@ with tab1:
 
     with col_pdf1:
         st.markdown("#### **Salvar Relatório Técnico em PDF**")
-        st.caption("Gere um documento formatado em PDF do diagnóstico técnico para guardar no dispositivo.")
+        st.caption("Gere um documento formatado em PDF do diagnóstico técnico e indicadores para guardar no dispositivo.")
         if itens_diagnostico:
-            pdf_data_t1 = gerar_pdf_relatorio(itens_diagnostico, data_hoje)
+            pdf_data_t1 = gerar_pdf_relatorio(itens_diagnostico, df_resumo_num, matriz_corr_df, data_hoje)
             st.download_button(
                 label="📄 Descarregar Relatório Técnico em PDF",
                 data=pdf_data_t1,
@@ -456,16 +542,16 @@ with tab1:
             if not email_destin1:
                 st.warning("⚠️ Por favor, introduza o e-mail de destino.")
             elif itens_diagnostico:
-                corpo_email1 = f"📋 Relatório de Análise e Decisão de ETFs XTB\nData: {data_hoje}\n\n"
+                corpo_email1 = f"📋 Relatório de Análise e Decisão de ETFs XTB (v3.0)\nData: {data_hoje}\n\n"
                 for item in itens_diagnostico:
                     corpo_email1 += (
                         f"📌 {item['nome']} ({item['ticker']})\n"
-                        f"• Preço de Fecho: €{item['preco']:.2f}\n"
-                        f"• Ação Recomendada: {item['acao']}\n"
+                        f"• Preço: €{item['preco']:.2f} | MA50: €{item['ma50']:.2f} | MA200: €{item['ma200']:.2f}\n"
+                        f"• Sinal Recomendado: {item['acao']}\n"
                         f"• Velocímetro (RSI 14): {item['rsi']:.1f}\n"
                         f"• Diagnóstico: {item['explicacao']}\n\n"
                     )
-                app_domain = "etf-xtb-alerta." + "streamlit.app"
+                app_domain = APP_DOMAIN
                 corpo_email1 += f"---\nAcesse o painel interativo em: https://{app_domain}"
                 
                 sucesso, msg = enviar_email_relatorio(
@@ -477,70 +563,6 @@ with tab1:
                     st.success(msg)
                 else:
                     st.warning(msg)
-
-    st.markdown("---")
-
-    st.subheader("📈 Gráficos Técnicos Individuais")
-    for nome in etfs_selecionados:
-        ticker = ETF_MAP[nome]["ticker"]
-        if ticker in dados.columns:
-            serie = dados[ticker].dropna()
-            df_ind = calcular_indicadores_etf(serie)
-            
-            num_rows = 1
-            row_heights = [0.5]
-            subplot_titles = [f"Análise Técnica - {nome}"]
-            
-            if mostrar_rsi:
-                num_rows += 1
-                row_heights.append(0.25)
-                subplot_titles.append("RSI (14)")
-                
-            if mostrar_macd:
-                num_rows += 1
-                row_heights.append(0.25)
-                subplot_titles.append("MACD (12, 26, 9)")
-                
-            total_h = sum(row_heights)
-            row_heights = [h/total_h for h in row_heights]
-            
-            fig = make_subplots(
-                rows=num_rows, cols=1, shared_xaxes=True,
-                vertical_spacing=0.06, row_heights=row_heights,
-                subplot_titles=subplot_titles
-            )
-            
-            fig.add_trace(go.Scatter(x=df_ind.index, y=df_ind['Preco'], name="Preço (€)", line=dict(color='#1f77b4', width=1.5)), row=1, col=1)
-            
-            if mostrar_ma:
-                fig.add_trace(go.Scatter(x=df_ind.index, y=df_ind['MA50'], name="MA 50", line=dict(color='#ff7f0e', width=1.2)), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df_ind.index, y=df_ind['MA200'], name="MA 200", line=dict(color='#9467bd', width=1.2)), row=1, col=1)
-                
-            if mostrar_bb:
-                fig.add_trace(go.Scatter(x=df_ind.index, y=df_ind['BB_Upper'], name="Bollinger Sup", line=dict(color='rgba(128,128,128,0.5)', dash='dash', width=1)), row=1, col=1)
-                fig.add_trace(go.Scatter(x=df_ind.index, y=df_ind['BB_Lower'], name="Bollinger Inf", line=dict(color='rgba(128,128,128,0.5)', dash='dash', width=1), fill='tonexty', fillcolor='rgba(128,128,128,0.1)'), row=1, col=1)
-                
-            current_row = 2
-            if mostrar_rsi:
-                fig.add_trace(go.Scatter(x=df_ind.index, y=df_ind['RSI'], name="RSI (14)", line=dict(color='#2ca02c', width=1.5)), row=current_row, col=1)
-                fig.add_hline(y=70, line_dash="dash", line_color="red", row=current_row, col=1)
-                fig.add_hline(y=30, line_dash="dash", line_color="green", row=current_row, col=1)
-                current_row += 1
-                
-            if mostrar_macd:
-                fig.add_trace(go.Scatter(x=df_ind.index, y=df_ind['MACD'], name="MACD", line=dict(color='#1f77b4', width=1.2)), row=current_row, col=1)
-                fig.add_trace(go.Scatter(x=df_ind.index, y=df_ind['MACD_Signal'], name="Sinal", line=dict(color='#ff7f0e', width=1.2)), row=current_row, col=1)
-                colors = ['#2ca02c' if val >= 0 else '#d62728' for val in df_ind['MACD_Hist']]
-                fig.add_trace(go.Bar(x=df_ind.index, y=df_ind['MACD_Hist'], name="Histograma", marker_color=colors), row=current_row, col=1)
-
-            fig.update_layout(height=350 + (num_rows * 140), hovermode="x unified", showlegend=True, margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("📊 Matriz de Correlação dos Retornos Diários")
-    if not dados.empty:
-        retornos = dados.pct_change().dropna()
-        matriz_corr = retornos.corr()
-        st.dataframe(matriz_corr.style.background_gradient(cmap="Blues"), use_container_width=True)
 
 # =========================================================
 # TAB 2: CALCULADORA DE REBALANCEAMENTO
@@ -951,7 +973,7 @@ with tab4:
     with col_strat1:
         opcao_estrategia = st.radio(
             "Escolha a Estratégia de Análise:",
-            options=["[1] Definição Manual de Metas", "[2] Curto Prazo Tático (Bollinger)", "[3] Médio/Longo Prazo (Percentis)"],
+            options=["Definição Manual de Metas", "Curto Prazo Tático (Bollinger)", "Médio/Longo Prazo (Percentis)"],
             index=0,
             key="fx_strat_opt"
         )
@@ -961,7 +983,7 @@ with tab4:
     
     s0 = float(df_cambio['rate'].iloc[-1])
     
-    if "[1]" in opcao_estrategia:
+    if "Manual" in opcao_estrategia:
         with col_strat2:
             m_compra_in = st.number_input(f"Meta de Compra ({moeda_alvo})", min_value=0.01, value=round(s0 * 0.97, 2), step=0.05, key="mc_in")
         with col_strat3:
@@ -969,7 +991,7 @@ with tab4:
         meta_compra = float(m_compra_in)
         meta_venda = float(m_venda_in)
         estrategia_nome = "Definição Manual de Metas"
-    elif "[2]" in opcao_estrategia:
+    elif "Bollinger" in opcao_estrategia:
         ma20 = df_cambio['rate'].tail(20).mean()
         std20 = df_cambio['rate'].tail(20).std()
         meta_compra = round(float(ma20 - 1.8 * std20), 2)
