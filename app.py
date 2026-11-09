@@ -387,34 +387,67 @@ def monte_carlo_cambio(s0, dias=30, n_sim=10000, m_compra=5.95, m_venda=6.20, re
         'tabela_prob': pd.DataFrame(tabela_prob)
     }
 
-def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_compra, m_venda, prob_c, prob_v, arima_30d, df_tb_records, data_str):
+def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_compra, m_venda, prob_c, prob_v, arima_30d, df_tb_records, df_resumo_num_cambio, data_str):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font('Helvetica', 'B', 16)
-    pdf.cell(pdf.epw, 10, sanitizar_pdf(f'Relatório de Análise Cambial {base_m}/{alvo_m}'), new_x='LMARGIN', new_y='NEXT', align='C')
-    pdf.set_font('Helvetica', 'I', 10)
-    pdf.cell(pdf.epw, 6, sanitizar_pdf(f'Data de emissao: {data_str} | API Frankfurter & Monte Carlo'), new_x='LMARGIN', new_y='NEXT', align='C')
-    pdf.ln(5)
-
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(pdf.epw, 8, sanitizar_pdf('1. Cotações e Spread Bancário'), new_x='LMARGIN', new_y='NEXT')
-    pdf.set_font('Helvetica', '', 10)
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Cotação Spot (Mid-Market): {alvo_m} {s0:.4f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Estimativa de Compra (+Spread): {alvo_m} {s_compra:.4f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Estimativa de Venda (-Spread): {alvo_m} {s_venda:.4f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Z-Score Atual: {z_score:.2f} desvios padrão -> Status: {diag}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.set_font('Helvetica', 'B', 15)
+    pdf.cell(pdf.epw, 9, sanitizar_pdf(f'Relatório de Análise Cambial {base_m}/{alvo_m} (v3.2)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.set_font('Helvetica', 'I', 9)
+    pdf.cell(pdf.epw, 5, sanitizar_pdf(f'Data de Emissao: {data_str} | API: Frankfurter (ECB) | Monte Carlo & ARIMA'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.ln(4)
 
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(pdf.epw, 8, sanitizar_pdf('2. Projeção ARIMA & Metas Monte Carlo'), new_x='LMARGIN', new_y='NEXT')
+    # 1. Tabela Resumo dos Indicadores Cambiais
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(pdf.epw, 7, sanitizar_pdf('1. Tabela Resumo dos Indicadores Cambiais'), new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(2)
+
+    if df_resumo_num_cambio is not None and not df_resumo_num_cambio.empty:
+        headers = ['Par', 'Spot', 'Compra Ef.', 'Venda Ef.', 'MA20', 'MA90', 'Dif MA20', 'BB Inf', 'BB Sup', 'Z-Score', 'Vol. Anual', 'Sinal']
+        table_rows = [headers]
+        for _, r in df_resumo_num_cambio.iterrows():
+            table_rows.append([
+                str(r.get('Par', f'{base_m}/{alvo_m}')),
+                str(r.get('Spot', f'{s0:.4f}')),
+                str(r.get('Compra Ef.', f'{s_compra:.4f}')),
+                str(r.get('Venda Ef.', f'{s_venda:.4f}')),
+                str(r.get('MA20', '')),
+                str(r.get('MA90', '')),
+                str(r.get('Dif MA20 (%)', '')),
+                str(r.get('BB Inf', '')),
+                str(r.get('BB Sup', '')),
+                str(r.get('Z-Score', f'{z_score:.2f}')),
+                str(r.get('Vol. Anual', '')),
+                str(r.get('Sinal Operacional', diag))
+            ])
+        with pdf.table() as table:
+            for row in table_rows:
+                row_cells = table.row()
+                for datum in row:
+                    row_cells.cell(sanitizar_pdf(datum))
+    pdf.ln(4)
+
+    # 2. Cotações e Diagnóstico Operacional
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(pdf.epw, 7, sanitizar_pdf('2. Diagnóstico Operacional & Estrutura de Cotações'), new_x='LMARGIN', new_y='NEXT')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Cotação Spot (Mid-Market): {alvo_m} {s0:.4f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Estimativa de Compra Efetiva (+Spread): {alvo_m} {s_compra:.4f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Estimativa de Venda Efetiva (-Spread): {alvo_m} {s_venda:.4f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Z-Score Atual: {z_score:.2f} desvios padrão -> Diagnóstico: {diag}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(4)
+
+    # 3. Projeção ARIMA & Metas Monte Carlo
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(pdf.epw, 7, sanitizar_pdf('3. Projeção ARIMA & Metas Monte Carlo'), new_x='LMARGIN', new_y='NEXT')
     pdf.set_font('Helvetica', '', 10)
     pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Projeção ARIMA (30 dias úteis): {alvo_m} {arima_30d:.2f}"), new_x='LMARGIN', new_y='NEXT')
     pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Meta de Compra: {alvo_m} {m_compra:.2f} (Probabilidade de atingimento: {prob_c:.1f}%)"), new_x='LMARGIN', new_y='NEXT')
     pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Meta de Venda: {alvo_m} {m_venda:.2f} (Probabilidade de atingimento: {prob_v:.1f}%)"), new_x='LMARGIN', new_y='NEXT')
     pdf.ln(4)
 
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.cell(pdf.epw, 8, sanitizar_pdf('3. Matriz de Probabilidade de Alcance (10.000 Trajetórias)'), new_x='LMARGIN', new_y='NEXT')
+    # 4. Matriz de Probabilidade
+    pdf.set_font('Helvetica', 'B', 11)
+    pdf.cell(pdf.epw, 7, sanitizar_pdf('4. Matriz de Probabilidade de Alcance (10.000 Trajetórias)'), new_x='LMARGIN', new_y='NEXT')
     pdf.set_font('Helvetica', '', 10)
     for rec in df_tb_records:
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Probabilidade {rec['Probabilidade']}: Compra <= {alvo_m} {rec['Alvo Compra (Mínima <= X)']:.2f} | Venda >= {alvo_m} {rec['Alvo Venda (Máxima >= Y)']:.2f}"), new_x='LMARGIN', new_y='NEXT')
@@ -1051,8 +1084,10 @@ with tab3:
 # TAB 4: ANÁLISE CAMBIAL & PROJEÇÃO
 # =========================================================
 with tab4:
-    st.subheader("💱 Fluxo Integrado de Análise Cambial")
-    st.caption("Dados oficiais via API Frankfurter | Indicadores Z-Score & Bollinger | Projeção ARIMA | Monte Carlo (10.000 Simulações)")
+    st.subheader("💱 Fluxo Integrado de Análise Cambial & Projeção")
+    
+    data_hora_atual4 = datetime.now().strftime("%d/%m/%Y %H:%M")
+    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.2 - Cambial):** Atualizado em: {data_hora_atual4} UTC | API: Frankfurter (Câmbio Oficial) | Fonte: ECB (Banco Central Europeu)")
 
     c_fx1, c_fx2, c_fx3, c_fx4 = st.columns(4)
     with c_fx1:
@@ -1116,21 +1151,55 @@ with tab4:
     s_compra = s0 * (1 + spread_pct / 100)
     s_venda = s0 * (1 - spread_pct / 100)
     z_score = float(df_cambio['Z_Score'].iloc[-1])
-    
-    if z_score <= -1.5:
-        diag = "OPORTUNIDADE DE COMPRA (Sobrevendido)"
+    ma20_val = float(df_cambio['MA20'].iloc[-1])
+    ma90_val = float(df_cambio['MA90'].iloc[-1])
+    bb_inf = float(df_cambio['Bollinger_Lower'].iloc[-1])
+    bb_sup = float(df_cambio['Bollinger_Upper'].iloc[-1])
+    diff_ma20_pct = ((s0 - ma20_val) / ma20_val) * 100 if ma20_val > 0 else 0.0
+    vol_anual_cambio = float(ret_cambio.std() * np.sqrt(252) * 100) if len(ret_cambio) > 0 else 0.0
+
+    # 4 Estados Operacionais para Câmbio
+    if z_score <= -1.5 or s0 <= bb_inf:
+        diag = "🟢 [COMPRA TÁTICA - SOBREVENDIDO]"
+        explicacao_cambio = f"O par {moeda_base}/{moeda_alvo} encontra-se estatisticamente sobrevendido (Z-Score: {z_score:.2f} std, Cotação: {moeda_alvo} {s0:.4f}). Excelente janela para antecipar compras."
+    elif z_score >= 1.8 or s0 >= bb_sup:
+        diag = "🔴 [VENDA FAVORÁVEL / SOBRECOMPRADO]"
+        explicacao_cambio = f"O par {moeda_base}/{moeda_alvo} encontra-se sobrecomprado no limite superior (Z-Score: {z_score:.2f} std, Cotação: {moeda_alvo} {s0:.4f}). Momento ideal para conversão/venda de divisas."
     elif z_score >= 1.5:
-        diag = "OPORTUNIDADE DE VENDA (Sobrecomprado)"
+        diag = "🟡 [AGUARDAR / PREÇO ESTICADO]"
+        explicacao_cambio = f"O par apresenta valorização acentuada de curto prazo (Z-Score: {z_score:.2f} std). Evite compras de impulso; aguarde recuo tático."
     else:
-        diag = "NEUTRO / AGUARDAR INFLEXÃO"
+        diag = "🔵 [COMPRA FRACIONADA / NEUTRO]"
+        explicacao_cambio = f"Cotação em níveis equilibrados em relação à média de 20 dias (Z-Score: {z_score:.2f} std). Recomenda-se a estratégia DCA (30% lote inicial + 70% ordens limite)."
+
+    # Tabela Resumo Numérico dos Indicadores Cambiais
+    registos_num_cambio = [{
+        "Par": f"{moeda_base}/{moeda_alvo}",
+        "Spot": f"{s0:.4f}",
+        "Compra Ef.": f"{s_compra:.4f}",
+        "Venda Ef.": f"{s_venda:.4f}",
+        "MA20": f"{ma20_val:.4f}",
+        "MA90": f"{ma90_val:.4f}",
+        "Dif MA20 (%)": f"{diff_ma20_pct:+.2f}%",
+        "BB Inf": f"{bb_inf:.4f}",
+        "BB Sup": f"{bb_sup:.4f}",
+        "Z-Score": f"{z_score:.2f}",
+        "Vol. Anual": f"{vol_anual_cambio:.1f}%",
+        "Sinal Operacional": diag
+    }]
+    df_resumo_cambio = pd.DataFrame(registos_num_cambio)
 
     st.markdown("---")
-    st.markdown("### 2. Visão do Mercado e Cotações com Spread")
+    st.markdown("### 2. Visão do Mercado e Tabela Numérica de Indicadores Cambiais")
+    st.dataframe(df_resumo_cambio, use_container_width=True)
+
     m_fx1, m_fx2, m_fx3, m_fx4 = st.columns(4)
     m_fx1.metric(f"Cotação Spot ({moeda_base}/{moeda_alvo})", f"{moeda_alvo} {s0:.4f}")
     m_fx2.metric(f"Compra Efetiva (+{spread_pct}%)", f"{moeda_alvo} {s_compra:.4f}")
     m_fx3.metric(f"Venda Efetiva (-{spread_pct}%)", f"{moeda_alvo} {s_venda:.4f}")
     m_fx4.metric("Z-Score Atual", f"{z_score:.2f} std", diag)
+
+    st.info(f"💡 **Diagnóstico Operacional Cambial:** `{diag}` — {explicacao_cambio}")
 
     st.markdown("---")
     st.markdown("### 3. Gráficos de Tendência Histórica e Projeção Preditiva ARIMA")
@@ -1182,7 +1251,8 @@ with tab4:
             
     with rec_box2:
         st.markdown("#### **Estratégia de Compras Fracionadas (Lotes):**")
-        st.success(f"• **Lote 1 (30% do Orçamento):** Executar compra inicial de proteção à cotação atual de {moeda_alvo} {s_compra:.4f}.\n\n• **Lotes 2 e 3 (70% Restante):** Programar ordens limite de compra conforme a cotação recuar em direção às metas da tabela de probabilidades.")
+        dca_text = f"• **Lote 1 (30% do Orçamento):** Executar compra inicial de proteção à cotação atual de {moeda_alvo} {s_compra:.4f}.\n\n• **Lotes 2 e 3 (70% Restante):** Programar ordens limite de compra conforme a cotação recuar em direção às metas da tabela de probabilidades."
+        st.success(dca_text)
 
     # EXPORTAÇÃO TAB 4
     st.markdown("---")
@@ -1197,7 +1267,7 @@ with tab4:
         pdf_bytes4 = gerar_pdf_cambio(
             moeda_base, moeda_alvo, s0, s_compra, s_venda, z_score, diag,
             meta_compra, meta_venda, res_mc['prob_compra'], res_mc['prob_venda'],
-            float(df_proj['ARIMA'].iloc[-1]), res_mc['tabela_prob'].to_dict(orient="records"), data_hoje4
+            float(df_proj['ARIMA'].iloc[-1]), res_mc['tabela_prob'].to_dict(orient="records"), df_resumo_cambio, data_hoje4
         )
         st.download_button(
             label="📄 Descarregar Relatório Cambial em PDF",
@@ -1224,7 +1294,8 @@ with tab4:
                     f"• Cotação Spot Atual: {moeda_alvo} {s0:.4f}\n"
                     f"• Compra Efetiva (+{spread_pct}% spread): {moeda_alvo} {s_compra:.4f}\n"
                     f"• Venda Efetiva (-{spread_pct}% spread): {moeda_alvo} {s_venda:.4f}\n"
-                    f"• Z-Score: {z_score:.2f} std ({diag})\n\n"
+                    f"• Z-Score: {z_score:.2f} std ({diag})\n"
+                    f"• Volatilidade Anualizada: {vol_anual_cambio:.1f}%\n\n"
                     f"🔮 Projeção ARIMA (30 dias úteis): {moeda_alvo} {df_proj['ARIMA'].iloc[-1]:.2f}\n"
                     f"• Meta de Compra: {moeda_alvo} {meta_compra:.2f} (Probabilidade: {res_mc['prob_compra']:.1f}%)\n"
                     f"• Meta de Venda: {moeda_alvo} {meta_venda:.2f} (Probabilidade: {res_mc['prob_venda']:.1f}%)\n\n"
