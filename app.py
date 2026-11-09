@@ -145,19 +145,28 @@ def gerar_pdf_relatorio(itens_diagnostico, df_resumo_num, matriz_corr, data_str)
     pdf.ln(2)
 
     if df_resumo_num is not None and not df_resumo_num.empty:
-        headers = ['Ativo', 'Preco', 'MA50', 'MA200', 'Dif MA', 'BB Inf', 'BB Sup', 'RSI', 'Sinal']
+        headers = ['Ativo', 'Preço', 'MA50', 'MA200', 'Dif MA', 'RSI', 'Atual', 'Alvo', 'Decisão']
         table_rows = [headers]
         for _, r in df_resumo_num.iterrows():
+            preco_val = f"EUR {float(r['Preço (€)']):.2f}" if 'Preço (€)' in r and pd.notnull(r['Preço (€)']) else str(r.get('Preço', ''))
+            ma50_val = f"EUR {float(r['MA50 (€)']):.2f}" if 'MA50 (€)' in r and pd.notnull(r['MA50 (€)']) else str(r.get('MA50', ''))
+            ma200_val = f"EUR {float(r['MA200 (€)']):.2f}" if 'MA200 (€)' in r and pd.notnull(r['MA200 (€)']) else str(r.get('MA200', ''))
+            dif_ma_val = str(r.get('Dif MA (%)', r.get('Dif MA', 'N/A')))
+            rsi_val = f"{float(r['RSI (14)']):.1f}" if 'RSI (14)' in r and pd.notnull(r['RSI (14)']) else str(r.get('RSI', ''))
+            aloc_atual_val = str(r.get('Aloc. Atual', 'N/A'))
+            aloc_alvo_val = str(r.get('Aloc. Alvo', 'N/A'))
+            decisao_val = str(r.get('Decisão Integrada', r.get('Sinal Recomendado', r.get('Sinal Técnico', ''))))
+
             table_rows.append([
-                str(r['Ativo']),
-                f"EUR {r['Preço (€)']:.2f}",
-                f"EUR {r['MA50 (€)']:.2f}",
-                f"EUR {r['MA200 (€)']:.2f}",
-                str(r['Dif MA (%)']),
-                f"EUR {r['BB Inf (€)']:.2f}",
-                f"EUR {r['BB Sup (€)']:.2f}",
-                f"{r['RSI (14)']:.1f}",
-                str(r['Sinal Recomendado'])
+                str(r.get('Ativo', '')),
+                preco_val,
+                ma50_val,
+                ma200_val,
+                dif_ma_val,
+                rsi_val,
+                aloc_atual_val,
+                aloc_alvo_val,
+                decisao_val
             ])
         with pdf.table() as table:
             for row in table_rows:
@@ -518,6 +527,9 @@ with tab1:
                 "Preço (€)": round(preco, 2),
                 "MA50 (€)": round(ma50, 2),
                 "MA200 (€)": round(ma200, 2),
+                "Dif MA (%)": f"{diff_ma_pct:+.2f}%",
+                "BB Inf (€)": round(bb_inf, 2),
+                "BB Sup (€)": round(bb_sup, 2),
                 "RSI (14)": round(rsi, 1),
                 "Aloc. Atual": f"{peso_atual_pct:.1f}%",
                 "Aloc. Alvo": f"{peso_alvo_pct:.1f}%",
