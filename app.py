@@ -1213,6 +1213,38 @@ with tab4:
     st.info(f"💡 **Diagnóstico Operacional Cambial:** `{diag}` — {explicacao_cambio}")
 
     st.markdown("---")
+    st.markdown("### 3. Simulador de Conversão Cambial & DCA em Valores Absolutos (Fase 2)")
+    with st.expander("⚙️ Ajustar Montante a Converter (para Cálculo de Lotes DCA em Valores Absolutos)", expanded=True):
+        montante_converter_in = st.number_input(f"Montante a Converter ({moeda_base}):", min_value=100.0, value=5000.0, step=500.0, key="fx_montante_conv")
+
+    montante_base = float(montante_converter_in)
+    valor_spot_alvo = montante_base * s0
+    valor_efetivo_compra_alvo = montante_base * s_compra
+    custo_spread_alvo = valor_efetivo_compra_alvo - valor_spot_alvo
+
+    lote1_base = montante_base * 0.30
+    lote1_efetivo_alvo = lote1_base * s_compra
+
+    lotes23_base = montante_base * 0.70
+    lotes23_efetivo_alvo = lotes23_base * s_compra
+
+    sim_dados = {
+        "montante_base": montante_base,
+        "valor_spot_alvo": valor_spot_alvo,
+        "valor_efetivo_compra_alvo": valor_efetivo_compra_alvo,
+        "custo_spread_alvo": custo_spread_alvo,
+        "lote1_base": lote1_base,
+        "lote1_efetivo_alvo": lote1_efetivo_alvo,
+        "lotes23_base": lotes23_base,
+        "lotes23_efetivo_alvo": lotes23_efetivo_alvo
+    }
+
+    col_sim1, col_sim2, col_sim3 = st.columns(3)
+    col_sim1.metric(f"Capital Aporte ({moeda_base})", f"{moeda_base} {montante_base:,.2f}")
+    col_sim2.metric(f"Total Efetivo Compra ({moeda_alvo})", f"{moeda_alvo} {valor_efetivo_compra_alvo:,.2f}", f"Spread: +{spread_pct}%")
+    col_sim3.metric(f"Custo Spread Bancário", f"{moeda_alvo} {custo_spread_alvo:,.2f}")
+
+    st.markdown("---")
     st.markdown("### 4. Gráficos de Tendência Histórica e Projeção Preditiva ARIMA")
     
     g_col1, g_col2 = st.columns(2)
