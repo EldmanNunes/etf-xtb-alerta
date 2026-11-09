@@ -232,9 +232,9 @@ def gerar_pdf_rebalanceamento(patrimonio_atual, capital, total_investido, caixa_
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font('Helvetica', 'B', 16)
-    pdf.cell(pdf.epw, 10, sanitizar_pdf('XTB Portfolio Rebalancer - Plano de Aporte'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.cell(pdf.epw, 10, sanitizar_pdf('XTB Portfolio Rebalancer - Plano de Aporte (v3.4)'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.set_font('Helvetica', 'I', 10)
-    pdf.cell(pdf.epw, 6, sanitizar_pdf(f'Data de emissao: {data_str} | Corretora XTB (Cotas Inteiras)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.cell(pdf.epw, 6, sanitizar_pdf(f'Data de emissao: {data_str} | Corretora XTB (Cotas Inteiras) | Trava de Risco (+5.0 pp)'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.ln(5)
 
     pdf.set_font('Helvetica', 'B', 12)
@@ -243,7 +243,7 @@ def gerar_pdf_rebalanceamento(patrimonio_atual, capital, total_investido, caixa_
     pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Patrimonio Atual: EUR {patrimonio_atual:,.2f}"), new_x='LMARGIN', new_y='NEXT')
     pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Capital Disponivel para Aporte: EUR {capital:,.2f}"), new_x='LMARGIN', new_y='NEXT')
     pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total Efetivamente Investido: EUR {total_investido:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Caixa Residual (Sobra nao alocada): EUR {caixa_residual:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Caixa Residual (Excedente nao alocado): EUR {caixa_residual:,.2f}"), new_x='LMARGIN', new_y='NEXT')
     pdf.ln(4)
 
     pdf.set_font('Helvetica', 'B', 12)
@@ -258,6 +258,15 @@ def gerar_pdf_rebalanceamento(patrimonio_atual, capital, total_investido, caixa_
     pdf.set_font('Helvetica', '', 10)
     for aloc in alocacoes_str:
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- {aloc}"), new_x='LMARGIN', new_y='NEXT')
+
+    if caixa_residual > 50.0:
+        pdf.ln(4)
+        pdf.set_font('Helvetica', 'B', 12)
+        pdf.cell(pdf.epw, 8, sanitizar_pdf('4. Orientacao de Fracionamento Temporal (Tranchas) & Trava de Risco'), new_x='LMARGIN', new_y='NEXT')
+        pdf.set_font('Helvetica', '', 10)
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Excedente Retido em Liquidez: EUR {caixa_residual:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf("- Motivo: Trava de Risco por Banda de Tolerancia (+5.0 pp sobre o alvo) e/ou selecao tatica de ativos elegiveis."), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf("- Recomendacao: Manter o excedente em caixa / PRAB (0-1Y) e alocar em 2 a 3 tranchas temporais (30 a 90 dias)."), new_x='LMARGIN', new_y='NEXT')
 
     return bytes(pdf.output())
 
@@ -704,27 +713,52 @@ with tab1:
                     st.warning(msg)
 
 # =========================================================
+# =========================================================
 # TAB 2: CALCULADORA DE REBALANCEAMENTO
 # =========================================================
 with tab2:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.1):** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Versão: v3.2 (Fase 3 Completa - Fichas Técnicas & Risco)")
-    st.subheader("⚖️ Calculadora de Rebalanceamento XTB por Novo Aporte")
-    st.caption("Alocação Alvo Estratégica: PRAB (25%) | IBCI (45%) | XDEQ (30%)")
+    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.4 - Rebalanceamento Seletivo & Trava de Risco):** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Trava de Risco (+5.0 pp) | Filtro de Sinais Técnicos")
+    st.subheader("⚖️ Calculadora de Rebalanceamento XTB por Novo Aporte (v3.4)")
+    st.caption("Alocação Alvo Estratégica: PRAB (25%) | IBCI (45%) | XDEQ (30%) | Trava de Risco (+5.0 pp sobre o alvo)")
     
     capital = st.number_input("Capital disponível para investir (€)", min_value=0.0, value=4000.0, step=100.0, key="cap_rebalancer")
     
-    st.markdown("### 📝 Posição Atual")
+    st.markdown("### 📝 Posição Atual & Filtros Seletivos por Ativo")
     c_cols = st.columns(3)
     
     cotas_input = {}
     precos_input = {}
+    elegivel_input = {}
     
     padroes = {
-        "PRAB": {"cotas": 654, "ticker": "PRAB.DE"},
-        "IBCI": {"cotas": 110, "ticker": "IBCI.DE"},
-        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE"}
+        "PRAB": {"cotas": 654, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30},
+        "IBCI": {"cotas": 110, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50},
+        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35}
     }
+
+    sinais_auto = {}
+    if not dados.empty:
+        for sigla, p_data in padroes.items():
+            ticker = p_data["ticker"]
+            if ticker in dados.columns:
+                s_t = dados[ticker].dropna()
+                if len(s_t) >= 50:
+                    m50 = float(s_t.tail(50).mean())
+                    m200 = float(s_t.tail(200).mean()) if len(s_t) >= 200 else m50
+                    d_rsi = s_t.diff()
+                    g_rsi = float(d_rsi.where(d_rsi > 0, 0).tail(14).mean())
+                    l_rsi = float((-d_rsi.where(d_rsi < 0, 0)).tail(14).mean())
+                    rsi_val = 100 - (100 / (1 + (g_rsi / l_rsi))) if l_rsi > 0 else 50.0
+                    
+                    if m50 > m200 and rsi_val > 70:
+                        sinais_auto[sigla] = ("🟡 AGUARDAR (Sobrecomprado)", False)
+                    elif m50 < m200 and rsi_val >= 30:
+                        sinais_auto[sigla] = ("🔴 REDUZIR (Tendência Baixa)", False)
+                    elif m50 > m200 and rsi_val < 35:
+                        sinais_auto[sigla] = ("🟢 COMPRAR (Sinal Forte)", True)
+                    else:
+                        sinais_auto[sigla] = ("🔵 MANTER (Neutro)", True)
     
     for idx, (sigla, p_data) in enumerate(padroes.items()):
         ticker = p_data["ticker"]
@@ -732,24 +766,35 @@ with tab2:
         if not dados.empty and ticker in dados.columns:
             preco_live = float(dados[ticker].dropna().iloc[-1])
             
+        sinal_lbl, default_chk = sinais_auto.get(sigla, ("🟢 ELEGÍVEL", True))
+        
         with c_cols[idx]:
-            st.markdown(f"#### **{sigla}**")
+            st.markdown(f"#### **{sigla}** (Alvo: {int(p_data['alvo']*100)}%)")
+            st.caption(f"Sinal Técnico: `{sinal_lbl}`")
             cotas = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=p_data["cotas"], key=f"c_{sigla}")
             preco = st.number_input(f"Preço Unitário (€) ({sigla})", min_value=0.01, value=preco_live, format="%.2f", key=f"p_{sigla}")
+            elegivel = st.checkbox(f"Autorizar Compra ({sigla})", value=default_chk, key=f"chk_{sigla}")
+            
             cotas_input[sigla] = cotas
             precos_input[sigla] = preco
+            elegivel_input[sigla] = elegivel
 
     def processar_rebalanceamento():
         targets = {"PRAB": 0.25, "IBCI": 0.45, "XDEQ": 0.30}
+        tetos = {"PRAB": 0.30, "IBCI": 0.50, "XDEQ": 0.35}
         
         val_atual = {a: cotas_input[a] * precos_input[a] for a in cotas_input}
         patrimonio_atual = sum(val_atual.values())
-        patrimonio_futuro = patrimonio_atual + capital
         
-        max_c = {a: int(capital // precos_input[a]) + 1 for a in targets}
+        max_c = {
+            a: (int(capital // precos_input[a]) + 1 if elegivel_input.get(a, True) else 0)
+            for a in targets
+        }
         
         melhor_erro = float('inf')
         melhor_compras = {"PRAB": 0, "IBCI": 0, "XDEQ": 0}
+        
+        enabled = [a for a in targets if elegivel_input.get(a, True)]
         
         for c1 in range(max_c["PRAB"] + 1):
             cost1 = c1 * precos_input["PRAB"]
@@ -767,8 +812,20 @@ with tab2:
                     tot_f = patrimonio_atual + custo_total
                     
                     pct1, pct2, pct3 = v_f1/tot_f, v_f2/tot_f, v_f3/tot_f
-                    erro = (pct1-targets["PRAB"])**2 + (pct2-targets["IBCI"])**2 + (pct3-targets["XDEQ"])**2
-                    erro += (capital - custo_total) / (capital + 1) * 0.001
+                    
+                    if pct1 > tetos["PRAB"]: continue
+                    if pct2 > tetos["IBCI"]: continue
+                    if pct3 > tetos["XDEQ"]: continue
+                    
+                    pcts = {"PRAB": pct1, "IBCI": pct2, "XDEQ": pct3}
+                    devs = []
+                    for a in enabled:
+                        if pcts[a] < targets[a]:
+                            devs.append((pcts[a] - targets[a])**2)
+                        else:
+                            devs.append(0.1 * (pcts[a] - targets[a])**2)
+                    
+                    erro = sum(devs) + 0.1 * ((capital - custo_total) / (capital + 1.0))
                     
                     if erro < melhor_erro:
                         melhor_erro = erro
@@ -788,10 +845,15 @@ with tab2:
         })
         
         alocacoes_str = []
+        trava_ativada = False
         for a in targets:
             pct_f = (saldo_final_est[a] / patrimonio_final) * 100
             desvio = pct_f - (targets[a] * 100)
-            alocacoes_str.append(f"{a}: {pct_f:.1f}% (Alvo: {int(targets[a]*100)}% | Desvio: {desvio:+.1f} pp)")
+            status_teto = ""
+            if abs(pct_f - (tetos[a]*100)) < 0.2 and melhor_compras[a] > 0:
+                status_teto = " [🔒 TETO DE RISCO ATINGIDO (+5.0 pp)]"
+                trava_ativada = True
+            alocacoes_str.append(f"{a}: {pct_f:.1f}% (Alvo: {int(targets[a]*100)}% | Desvio: {desvio:+.1f} pp){status_teto}")
             
         st.session_state["rebalancer_data"] = {
             "patrimonio_atual": patrimonio_atual,
@@ -802,7 +864,8 @@ with tab2:
             "alocacoes_str": alocacoes_str,
             "melhor_compras": melhor_compras,
             "investir_por_ativo": investir_por_ativo,
-            "saldo_final_est": saldo_final_est
+            "saldo_final_est": saldo_final_est,
+            "trava_ativada": trava_ativada
         }
 
     if st.button("🚀 Calcular Ordem de Compra Otimizada", type="primary", use_container_width=True, key="btn_calc_rebalancer"):
@@ -819,11 +882,22 @@ with tab2:
         m1, m2, m3 = st.columns(3)
         m1.metric("Patrimônio Atual", f"€{reb['patrimonio_atual']:,.2f}")
         m2.metric("Total a Investir", f"€{reb['total_investido']:,.2f}")
-        m3.metric("Caixa Residual (Sobra)", f"€{reb['caixa_residual']:,.2f}")
+        m3.metric("Caixa Residual (Excedente)", f"€{reb['caixa_residual']:,.2f}")
         
         st.markdown("#### **Alocação Final Estimada após Aporte:**")
         for aloc in reb["alocacoes_str"]:
             st.write(f"• {aloc}")
+
+        if reb["caixa_residual"] > 50.0 or reb.get("trava_ativada", False):
+            st.warning(
+                f"⚠️ **Gestão de Excedente & Orientação de Tranchas Temporais (v3.4):**\n\n"
+                f"• **Capital Solicitado:** €{reb['capital']:,.2f}\n"
+                f"• **Capital Alocado Hoje:** €{reb['total_investido']:,.2f}\n"
+                f"• **Excedente Retido em Liquidez:** **€{reb['caixa_residual']:,.2f}**\n\n"
+                f"💡 **Motivo da Retenção:** Trava de Risco por Banda de Tolerância (+5.0 pp sobre o alvo) e/ou seleção tática de ativos elegíveis.\n\n"
+                f"📌 **Recomendação de Ação:** Manter o excedente de **€{reb['caixa_residual']:,.2f}** em conta-margem/caixa (or no ETF soberano de curto prazo PRAB) "
+                f"e programar a entrada em **2 a 3 tranchas temporais (30 a 90 dias)** à medida que novas janelas de compra forem sinalizadas."
+            )
 
         st.markdown("---")
         st.subheader("📥 Exportação e Envio do Plano de Rebalanceamento")
@@ -859,11 +933,11 @@ with tab2:
                     st.warning("⚠️ Por favor, introduza o e-mail de destino.")
                 else:
                     corpo_email2 = (
-                        f"⚖️ Plano de Rebalanceamento de Carteira XTB\nData: {data_hoje2}\n\n"
+                        f"⚖️ Plano de Rebalanceamento de Carteira XTB (v3.4)\nData: {data_hoje2}\n\n"
                         f"• Patrimônio Atual: €{reb['patrimonio_atual']:,.2f}\n"
                         f"• Capital Disponível: €{reb['capital']:,.2f}\n"
-                        f"• Total a Investir: €{reb['total_investido']:,.2f}\n"
-                        f"• Caixa Residual (Sobra): €{reb['caixa_residual']:,.2f}\n\n"
+                        f"• Total Efetivamente Investido: €{reb['total_investido']:,.2f}\n"
+                        f"• Excedente Retido em Liquidez: €{reb['caixa_residual']:,.2f}\n\n"
                         f"📝 Ordens de Compra Sugeridas:\n"
                     )
                     for rec in reb["df_res"].to_dict(orient="records"):
@@ -872,6 +946,12 @@ with tab2:
                     corpo_email2 += "\n📊 Alocação Final Estimada:\n"
                     for aloc in reb["alocacoes_str"]:
                         corpo_email2 += f"  - {aloc}\n"
+
+                    if reb["caixa_residual"] > 50.0:
+                        corpo_email2 += (
+                            f"\n⚠️ Gestão de Excedente & Tranchas:\n"
+                            f"Excedente de €{reb['caixa_residual']:,.2f} retido por trava de risco (+5.0 pp). Recomendado fracionar em 2-3 tranchas (30-90 dias).\n"
+                        )
                     
                     app_domain = "etf-xtb-alerta." + "streamlit.app"
                     corpo_email2 += f"\n---\nAcesse o painel interativo em: https://{app_domain}"
@@ -886,7 +966,6 @@ with tab2:
                     else:
                         st.warning(msg)
 
-# =========================================================
 # TAB 3: GESTÃO ANUAL DE SAQUE & REEQUILÍBRIO
 # =========================================================
 with tab3:
