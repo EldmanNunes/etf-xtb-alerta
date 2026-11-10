@@ -1407,22 +1407,33 @@ with tab4:
             tipo_operacao_iof = st.selectbox(
                 "Finalidade da Operação (Taxa de IOF):",
                 options=[
-                    "🏦 Investimentos / Corretora no Exterior (IOF: 0,38%)",
                     "💳 Disponibilidade no Exterior / Conta Pessoal (IOF: 1,10%)",
-                    "⚙️ Taxa de IOF Personalizada"
+                    "🏦 Investimentos / Corretora no Exterior (IOF: 0,38%)",
+                    "⚙️ Taxa de IOF Personalizada (%)"
                 ],
                 index=0,
                 key="fx_tipo_iof",
-                help="No Brasil, transferências para investimento/corretora no exterior pagam 0,38% de IOF. Transferências para conta pessoal do mesmo titular pagam 1,10%."
+                help="No Brasil, transferências para conta pessoal do mesmo titular no exterior pagam 1,10% de IOF. Transferências diretas para investimento/corretora pagam 0,38%."
             )
         with col_sim_in3:
-            if "Personalizado" in tipo_operacao_iof:
-                iof_pct_in = st.number_input("Taxa de IOF Customizada (%)", min_value=0.0, max_value=10.0, value=0.38, step=0.01, key="fx_iof_custom")
-            elif "1,10%" in tipo_operacao_iof:
-                iof_pct_in = 1.10
-            else:
+            if "Personalizada" in tipo_operacao_iof or "Personalizado" in tipo_operacao_iof:
+                val_init = float(st.session_state.get("fx_iof_custom", 1.10))
+                iof_pct_in = st.number_input(
+                    "Alíquota de IOF Personalizada (%)",
+                    min_value=0.0,
+                    max_value=10.0,
+                    value=val_init if val_init > 0 else 1.10,
+                    step=0.01,
+                    format="%.2f",
+                    key="fx_iof_custom",
+                    help="Digite ou ajuste o percentual de IOF desejado para a operação."
+                )
+            elif "0,38%" in tipo_operacao_iof:
                 iof_pct_in = 0.38
-            st.metric("Alíquota de IOF Aplicada", fmt_br(iof_pct_in, 2, suffix='%'))
+                st.number_input("Alíquota de IOF Aplicada (%)", value=0.38, disabled=True, format="%.2f", key="fx_iof_dis_038")
+            else:
+                iof_pct_in = 1.10
+                st.number_input("Alíquota de IOF Aplicada (%)", value=1.10, disabled=True, format="%.2f", key="fx_iof_dis_110")
 
     montante_base = float(montante_converter_in)
     iof_pct = float(iof_pct_in)
@@ -1479,9 +1490,13 @@ with tab4:
         f"*(O VET combina a taxa comercial, a tarifa da plataforma e o imposto de IOF num único valor oficial conforme o Banco Central)*"
     )
 
-    if abs(iof_pct - 0.38) < 0.01:
+    if abs(iof_pct - 1.10) < 0.01:
+        st.info(
+            f"💡 **Dica de Economia Fiscal:** A finalidade de **Disponibilidade Pessoal** paga **1,10% de IOF**. Se você transferir diretamente para a **XTB (Investimentos / Corretora no Exterior)**, a alíquota cai para **0,38%**, gerando uma economia direta de **{moeda_alvo} {fmt_br(economia_iof, 2)}** neste aporte!"
+        )
+    elif abs(iof_pct - 0.38) < 0.01:
         st.success(
-            f"🟢 **Vantagem Fiscal (IOF 0,38% - Investimento):** Ao escolher a finalidade de **Investimentos / Corretora no Exterior**, a alíquota de IOF é reduzida para **0,38%** (em vez de 1,10% da disponibilidade pessoal), gerando uma economia direta de **{moeda_alvo} {economia_iof:,.2f}** no seu aporte."
+            f"🟢 **Vantagem Fiscal Ativa (IOF 0,38% - Investimento):** Ao escolher a finalidade de **Investimentos / Corretora no Exterior**, a alíquota de IOF é reduzida para **0,38%** (em vez de 1,10% da disponibilidade pessoal), gerando uma economia direta de **{moeda_alvo} {fmt_br(economia_iof, 2)}** no seu aporte!"
         )
 
     st.markdown("---")
