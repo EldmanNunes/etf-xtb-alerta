@@ -119,6 +119,25 @@ def calcular_indicadores_etf(serie):
     return df
 
 # Helper para PDF
+
+# Helper para Formatação Numérica no Padrão Brasileiro (PT-BR)
+def fmt_br(val, decimals=2, signed=False, prefix="", suffix=""):
+    """
+    Formata valores numéricos no padrão brasileiro:
+    - Separador de milhar: ponto (.)
+    - Separador decimal: vírgula (,)
+    Exemplo: 1234.56 -> 1.234,56
+    """
+    if val is None or pd.isna(val):
+        return ""
+    try:
+        val = float(val)
+        fmt_str = f"{val:+,.{decimals}f}" if signed else f"{val:,.{decimals}f}"
+        res = fmt_str.replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{prefix}{res}{suffix}"
+    except Exception:
+        return str(val)
+
 def sanitizar_pdf(texto: str) -> str:
     replacements = {
         '•': '-', '€': 'EUR', '🟢': '[COMPRAR]', '🔵': '[MANTER]', '🟡': '[AGUARDAR]', '🔴': '[REDUZIR]',
@@ -166,11 +185,11 @@ def gerar_pdf_relatorio(itens_diagnostico, df_resumo_num, matriz_corr, data_str)
         headers = ['Ativo', 'Preço', 'MA50', 'MA200', 'Dif MA', 'RSI', 'Atual', 'Alvo', 'Decisão']
         table_rows = [headers]
         for _, r in df_resumo_num.iterrows():
-            preco_val = f"EUR {float(r['Preço (€)']):.2f}" if 'Preço (€)' in r and pd.notnull(r['Preço (€)']) else str(r.get('Preço', ''))
-            ma50_val = f"EUR {float(r['MA50 (€)']):.2f}" if 'MA50 (€)' in r and pd.notnull(r['MA50 (€)']) else str(r.get('MA50', ''))
-            ma200_val = f"EUR {float(r['MA200 (€)']):.2f}" if 'MA200 (€)' in r and pd.notnull(r['MA200 (€)']) else str(r.get('MA200', ''))
+            preco_val = f"EUR {fmt_br(r['Preço (€)'], 2)}" if 'Preço (€)' in r and pd.notnull(r['Preço (€)']) else str(r.get('Preço', ''))
+            ma50_val = f"EUR {fmt_br(r['MA50 (€)'], 2)}" if 'MA50 (€)' in r and pd.notnull(r['MA50 (€)']) else str(r.get('MA50', ''))
+            ma200_val = f"EUR {fmt_br(r['MA200 (€)'], 2)}" if 'MA200 (€)' in r and pd.notnull(r['MA200 (€)']) else str(r.get('MA200', ''))
             dif_ma_val = str(r.get('Dif MA (%)', r.get('Dif MA', 'N/A')))
-            rsi_val = f"{float(r['RSI (14)']):.1f}" if 'RSI (14)' in r and pd.notnull(r['RSI (14)']) else str(r.get('RSI', ''))
+            rsi_val = fmt_br(r['RSI (14)'], 1) if 'RSI (14)' in r and pd.notnull(r['RSI (14)']) else str(r.get('RSI', ''))
             aloc_atual_val = str(r.get('Aloc. Atual', 'N/A'))
             aloc_alvo_val = str(r.get('Aloc. Alvo', 'N/A'))
             decisao_val = str(r.get('Decisão Integrada', r.get('Sinal Recomendado', r.get('Sinal Técnico', ''))))
@@ -202,8 +221,8 @@ def gerar_pdf_relatorio(itens_diagnostico, df_resumo_num, matriz_corr, data_str)
         pdf.set_font('Helvetica', 'B', 10)
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- {item['nome']} ({item['ticker']})"), new_x='LMARGIN', new_y='NEXT')
         pdf.set_font('Helvetica', '', 9)
-        pdf.multi_cell(pdf.epw, 4, sanitizar_pdf(f"  Preço de Fecho: EUR {item['preco']:.2f} | MA50: EUR {item['ma50']:.2f} | MA200: EUR {item['ma200']:.2f}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 4, sanitizar_pdf(f"  Sinal Recomendado: {item['acao']} (RSI 14: {item['rsi']:.1f})"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 4, sanitizar_pdf(f"  Preço de Fecho: EUR {fmt_br(item['preco'], 2)} | MA50: EUR {fmt_br(item['ma50'], 2)} | MA200: EUR {fmt_br(item['ma200'], 2)}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 4, sanitizar_pdf(f"  Sinal Recomendado: {item['acao']} (RSI 14: {fmt_br(item['rsi'], 1)})"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 4, sanitizar_pdf(f"  Diagnóstico: {item['explicacao']}"), new_x='LMARGIN', new_y='NEXT')
         pdf.ln(2)
 
@@ -240,10 +259,10 @@ def gerar_pdf_rebalanceamento(patrimonio_atual, capital, total_investido, caixa_
     pdf.set_font('Helvetica', 'B', 12)
     pdf.cell(pdf.epw, 8, sanitizar_pdf('1. Resumo do Capital e Patrimonio'), new_x='LMARGIN', new_y='NEXT')
     pdf.set_font('Helvetica', '', 10)
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Patrimonio Atual: EUR {patrimonio_atual:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Capital Disponivel para Aporte: EUR {capital:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total Efetivamente Investido: EUR {total_investido:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Caixa Residual (Excedente nao alocado): EUR {caixa_residual:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Patrimonio Atual: EUR {fmt_br(patrimonio_atual, 2)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Capital Disponivel para Aporte: EUR {fmt_br(capital, 2)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total Efetivamente Investido: EUR {fmt_br(total_investido, 2)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Caixa Residual (Excedente nao alocado): EUR {fmt_br(caixa_residual, 2)}"), new_x='LMARGIN', new_y='NEXT')
     pdf.ln(4)
 
     pdf.set_font('Helvetica', 'B', 12)
@@ -264,7 +283,7 @@ def gerar_pdf_rebalanceamento(patrimonio_atual, capital, total_investido, caixa_
         pdf.set_font('Helvetica', 'B', 12)
         pdf.cell(pdf.epw, 8, sanitizar_pdf('4. Orientacao de Fracionamento Temporal (Tranchas) & Trava de Risco'), new_x='LMARGIN', new_y='NEXT')
         pdf.set_font('Helvetica', '', 10)
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Excedente Retido em Liquidez: EUR {caixa_residual:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Excedente Retido em Liquidez: EUR {fmt_br(caixa_residual, 2)}"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf("- Motivo: Trava de Risco por Banda de Tolerancia (+5.0 pp sobre o alvo) e/ou selecao tatica de ativos elegiveis."), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf("- Recomendacao: Manter o excedente em caixa / PRAB (0-1Y) e alocar em 2 a 3 tranchas temporais (30 a 90 dias)."), new_x='LMARGIN', new_y='NEXT')
 
@@ -282,10 +301,10 @@ def gerar_pdf_saque(patrimonio_inicial, hicp, saque_teorico, saque_efetivo, ativ
     pdf.set_font('Helvetica', 'B', 12)
     pdf.cell(pdf.epw, 8, sanitizar_pdf('1. Parâmetros e Saque Recomendado'), new_x='LMARGIN', new_y='NEXT')
     pdf.set_font('Helvetica', '', 10)
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Patrimonio Inicial: EUR {patrimonio_inicial:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Inflacao HICP: {hicp:.1f}%"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Saque Teorico Calculado (3.5% + HICP): EUR {saque_teorico:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Valor Efetivamente Sacado: EUR {saque_efetivo:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Patrimonio Inicial: EUR {fmt_br(patrimonio_inicial, 2)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Inflacao HICP: {fmt_br(hicp, 1, suffix='%')}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Saque Teorico Calculado (3.5% + HICP): EUR {fmt_br(saque_teorico, 2)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Valor Efetivamente Sacado: EUR {fmt_br(saque_efetivo, 2)}"), new_x='LMARGIN', new_y='NEXT')
     pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Ordem de Venda: {ativo_venda} ({cotas_vendidas} cotas)"), new_x='LMARGIN', new_y='NEXT')
     if justificativa_saque:
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Justificativa Tática: {justificativa_saque}"), new_x='LMARGIN', new_y='NEXT')
@@ -394,9 +413,9 @@ def monte_carlo_cambio(s0, dias=30, n_sim=10000, m_compra=5.95, m_venda=6.20, re
         alvo_compra = np.percentile(min_caminhos, p)
         alvo_venda = np.percentile(max_caminhos, 100 - p)
         tabela_prob.append({
-            'Probabilidade': f"{p}%",
-            'Alvo Compra (Mínima <= X)': alvo_compra,
-            'Alvo Venda (Máxima >= Y)': alvo_venda
+            'Probabilidade': fmt_br(p, 0, suffix="%"),
+            'Alvo Compra (Mínima <= X)': fmt_br(alvo_compra, 4),
+            'Alvo Venda (Máxima >= Y)': fmt_br(alvo_venda, 4)
         })
         
     return {
@@ -425,15 +444,15 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
         for _, r in df_resumo_num_cambio.iterrows():
             table_rows.append([
                 str(r.get('Par', f'{base_m}/{alvo_m}')),
-                str(r.get('Spot', f'{s0:.4f}')),
-                str(r.get('Compra Ef.', f'{s_compra:.4f}')),
-                str(r.get('Venda Ef.', f'{s_venda:.4f}')),
+                str(r.get('Spot', fmt_br(s0, 4))),
+                str(r.get('Compra Ef.', fmt_br(s_compra, 4))),
+                str(r.get('Venda Ef.', fmt_br(s_venda, 4))),
                 str(r.get('MA20', '')),
                 str(r.get('MA90', '')),
                 str(r.get('Dif MA20 (%)', '')),
                 str(r.get('BB Inf', '')),
                 str(r.get('BB Sup', '')),
-                str(r.get('Z-Score', f'{z_score:.2f}')),
+                str(r.get('Z-Score', fmt_br(z_score, 2))),
                 str(r.get('Vol. Anual', '')),
                 str(r.get('Sinal Operacional', diag))
             ])
@@ -448,19 +467,19 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
     pdf.set_font('Helvetica', 'B', 11)
     pdf.cell(pdf.epw, 7, sanitizar_pdf('2. Diagnóstico Operacional & Estrutura de Cotações'), new_x='LMARGIN', new_y='NEXT')
     pdf.set_font('Helvetica', '', 10)
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Cotação Spot (Mid-Market): {alvo_m} {s0:.4f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Estimativa de Compra Efetiva (+Spread): {alvo_m} {s_compra:.4f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Estimativa de Venda Efetiva (-Spread): {alvo_m} {s_venda:.4f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Z-Score Atual: {z_score:.2f} desvios padrão -> Diagnóstico: {diag}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Cotação Spot (Mid-Market): {alvo_m} {fmt_br(s0, 4)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Estimativa de Compra Efetiva (+Spread): {alvo_m} {fmt_br(s_compra, 4)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Estimativa de Venda Efetiva (-Spread): {alvo_m} {fmt_br(s_venda, 4)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Z-Score Atual: {fmt_br(z_score, 2)} desvios padrão -> Diagnóstico: {diag}"), new_x='LMARGIN', new_y='NEXT')
     pdf.ln(4)
 
     # 3. Projeção ARIMA & Metas Monte Carlo
     pdf.set_font('Helvetica', 'B', 11)
     pdf.cell(pdf.epw, 7, sanitizar_pdf('3. Projeção ARIMA & Metas Monte Carlo'), new_x='LMARGIN', new_y='NEXT')
     pdf.set_font('Helvetica', '', 10)
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Projeção ARIMA (30 dias úteis): {alvo_m} {arima_30d:.2f}"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Meta de Compra: {alvo_m} {m_compra:.2f} (Probabilidade de atingimento: {prob_c:.1f}%)"), new_x='LMARGIN', new_y='NEXT')
-    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Meta de Venda: {alvo_m} {m_venda:.2f} (Probabilidade de atingimento: {prob_v:.1f}%)"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Projeção ARIMA (30 dias úteis): {alvo_m} {fmt_br(arima_30d, 2)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Meta de Compra: {alvo_m} {fmt_br(m_compra, 2)} (Probabilidade de atingimento: {fmt_br(prob_c, 1, suffix='%')})"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Meta de Venda: {alvo_m} {fmt_br(m_venda, 2)} (Probabilidade de atingimento: {fmt_br(prob_v, 1, suffix='%')})"), new_x='LMARGIN', new_y='NEXT')
     pdf.ln(4)
 
     # 4. Matriz de Probabilidade
@@ -475,14 +494,14 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
         pdf.set_font('Helvetica', 'B', 11)
         pdf.cell(pdf.epw, 7, sanitizar_pdf('5. Simulação Financeira, VET & Lotes DCA (Valores Absolutos)'), new_x='LMARGIN', new_y='NEXT')
         pdf.set_font('Helvetica', '', 10)
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Capital a Converter: {base_m} {sim_dados['montante_base']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Cotação Comercial Bruta (Spot): {alvo_m} {s0:.4f} | Bruto: {alvo_m} {sim_dados['valor_bruto_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Tarifa da Plataforma / Spread: {alvo_m} {sim_dados['custo_plataforma_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Imposto IOF ({sim_dados['iof_pct']:.2f}%): {alvo_m} {sim_dados['custo_iof_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Capital a Converter: {base_m} {fmt_br(sim_dados['montante_base'], 2)}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Cotação Comercial Bruta (Spot): {alvo_m} {fmt_br(s0, 4)} | Bruto: {alvo_m} {fmt_br(sim_dados['valor_bruto_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Tarifa da Plataforma / Spread ({fmt_br(sim_dados['spread_pct'], 2, suffix='%')}): {alvo_m} {fmt_br(sim_dados['custo_plataforma_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Imposto IOF ({fmt_br(sim_dados['iof_pct'], 2, suffix='%')}): {alvo_m} {fmt_br(sim_dados['custo_iof_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total Pago Efetivo com Tarifas & Impostos: {alvo_m} {sim_dados['valor_efetivo_compra_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Valor Efetivo Total (VET): 1 {base_m} = {alvo_m} {sim_dados['vet_taxa']:.6f}"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Lote 1 (30% Proteção Imediata): {base_m} {sim_dados['lote1_base']:,.2f} -> {alvo_m} {sim_dados['lote1_efetivo_alvo']:,.2f} (Taxa VET {sim_dados['vet_taxa']:.4f})"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Lotes 2 e 3 (70% Ordens Limite em Recuos): {base_m} {sim_dados['lotes23_base']:,.2f} -> {alvo_m} {sim_dados['lotes23_efetivo_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Lotes 2 e 3 (70% Ordens Limite em Recuos): {base_m} {fmt_br(sim_dados['lotes23_base'], 2)} -> {alvo_m} {fmt_br(sim_dados['lotes23_efetivo_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
 
     return bytes(pdf.output())
 
@@ -515,8 +534,8 @@ with tab1:
                     var_dia = ((serie.iloc[-1] / serie.iloc[-2]) - 1) * 100
                     cols[idx].metric(
                         label=nome,
-                        value=f"€{preco_atual:.2f}",
-                        delta=f"{var_dia:+.2f}%"
+                        value=f"€ {fmt_br(preco_atual, 2)}",
+                        delta=fmt_br(var_dia, 2, signed=True, suffix='%')
                     )
 
     st.markdown("---")
@@ -567,20 +586,20 @@ with tab1:
             if ma50 > ma200:
                 if rsi > 70:
                     status_acao = "🟡 [AGUARDAR / NÃO REFORÇAR]"
-                    explicacao = f"Tendência primária de alta (MA50 > MA200 por +{diff_ma_pct:.1f}%), mas o ativo está temporariamente sobrecomprado (RSI: {rsi:.1f}). Aguarde um recuo antes de aportar."
+                    explicacao = f"Tendência primária de alta (MA50 > MA200 por {fmt_br(diff_ma_pct, 1, signed=True, suffix='%')}), mas o ativo está temporariamente sobrecomprado (RSI: {fmt_br(rsi, 1)}). Aguarde um recuo antes de aportar."
                 elif rsi < 35:
                     status_acao = "🟢 [COMPRAR / REFORÇAR]"
-                    explicacao = f"Tendência primária de alta (MA50 > MA200 por +{diff_ma_pct:.1f}%) com recuo tático de curto prazo (RSI: {rsi:.1f}). Excelente oportunidade para reforço."
+                    explicacao = f"Tendência primária de alta (MA50 > MA200 por {fmt_br(diff_ma_pct, 1, signed=True, suffix='%')}) com recuo tático de curto prazo (RSI: {fmt_br(rsi, 1)}). Excelente oportunidade para reforço."
                 else:
                     status_acao = "🔵 [MANTER / NEUTRO]"
-                    explicacao = f"Tendência de alta consistente (MA50 > MA200 por +{diff_ma_pct:.1f}%) e osciladores em nível equilibrado (RSI: {rsi:.1f}). Manter a alocação estratégica."
+                    explicacao = f"Tendência de alta consistente (MA50 > MA200 por {fmt_br(diff_ma_pct, 1, signed=True, suffix='%')}) e osciladores em nível equilibrado (RSI: {fmt_br(rsi, 1)}). Manter a alocação estratégica."
             else:
                 if rsi < 30:
                     status_acao = "🟡 [AGUARDAR / NÃO REFORÇAR]"
-                    explicacao = f"Tendência de curto/médio prazo de baixa (MA50 < MA200 por {diff_ma_pct:.1f}%), mas o RSI ({rsi:.1f}) indica sobrevenda. Não realizar vendas precipitadas no fundo."
+                    explicacao = f"Tendência de curto/médio prazo de baixa (MA50 < MA200 por {fmt_br(diff_ma_pct, 1, signed=True, suffix='%')}), mas o RSI ({fmt_br(rsi, 1)}) indica sobrevenda. Não realizar vendas precipitadas no fundo."
                 else:
                     status_acao = "🟡 [AGUARDAR / NÃO REFORÇAR]"
-                    explicacao = f"Tendência primária desfavorável (MA50 < MA200 por {diff_ma_pct:.1f}%, RSI: {rsi:.1f}). Suspender novos aportes. Liquidação recomendada apenas para reequilíbrio estrito."
+                    explicacao = f"Tendência primária desfavorável (MA50 < MA200 por {fmt_br(diff_ma_pct, 1, signed=True, suffix='%')}, RSI: {fmt_br(rsi, 1)}). Suspender novos aportes. Liquidação recomendada apenas para reequilíbrio estrito."
 
             # Cruzamento com a Alocação Alvo Estratégica (Fase 2)
             peso_atual_pct = (valores_atuais_port.get(nome, 0.0) / total_port_t1) * 100
@@ -589,33 +608,33 @@ with tab1:
             if status_acao.startswith("🟢"):
                 if peso_atual_pct >= peso_alvo_pct + 1.0:
                     status_integrado = "🟡 [AGUARDAR REBALANCEAMENTO - SOBREPONDERADO]"
-                    explicacao_integrada = f"Sinal técnico positivo ativo ({status_acao}), contudo o ativo já ultrapassou o seu alvo na carteira ({peso_atual_pct:.1f}% vs {peso_alvo_pct:.1f}%). Redirecionar aportes para ativos subponderados."
+                    explicacao_integrada = f"Sinal técnico positivo ativo ({status_acao}), contudo o ativo já ultrapassou o seu alvo na carteira ({fmt_br(peso_atual_pct, 1, suffix='%')} vs {fmt_br(peso_alvo_pct, 1, suffix='%')}). Redirecionar aportes para ativos subponderados."
                 else:
                     status_integrado = "🟢 [COMPRA RECOMENDADA - SUBPONDERADO]"
-                    explicacao_integrada = f"Sinal técnico favorável e ativo subponderado na carteira ({peso_atual_pct:.1f}% vs alvo de {peso_alvo_pct:.1f}%). Aporte prioritário."
+                    explicacao_integrada = f"Sinal técnico favorável e ativo subponderado na carteira ({fmt_br(peso_atual_pct, 1, suffix='%')} vs alvo de {fmt_br(peso_alvo_pct, 1, suffix='%')}). Aporte prioritário."
             elif status_acao.startswith("🔴"):
                 if peso_atual_pct >= peso_alvo_pct + 1.0:
                     status_integrado = "🔴 [REDUZIR / REBALANCEAR PRIORITÁRIO]"
-                    explicacao_integrada = f"Ativo em fraqueza técnica e sobreponderado ({peso_atual_pct:.1f}% vs {peso_alvo_pct:.1f}%). Candidato prioritário para reequilíbrio."
+                    explicacao_integrada = f"Ativo em fraqueza técnica e sobreponderado ({fmt_br(peso_atual_pct, 1, suffix='%')} vs {fmt_br(peso_alvo_pct, 1, suffix='%')}). Candidato prioritário para reequilíbrio."
                 else:
                     status_integrado = "🟡 [AGUARDAR - DENTRO DO ALVO]"
-                    explicacao_integrada = f"Tendência desfavorável, contudo o ativo não está sobreponderado ({peso_atual_pct:.1f}% vs {peso_alvo_pct:.1f}%). Manter sem novas compras."
+                    explicacao_integrada = f"Tendência desfavorável, contudo o ativo não está sobreponderado ({fmt_br(peso_atual_pct, 1, suffix='%')} vs {fmt_br(peso_alvo_pct, 1, suffix='%')}). Manter sem novas compras."
             else:
                 status_integrado = status_acao
-                explicacao_integrada = explicacao + f" (Alocação Atual: {peso_atual_pct:.1f}% vs Alvo: {peso_alvo_pct:.1f}%)."
+                explicacao_integrada = explicacao + f" (Alocação Atual: {fmt_br(peso_atual_pct, 1, suffix='%')} vs Alvo: {fmt_br(peso_alvo_pct, 1, suffix='%')})."
 
             registos_numericos.append({
                 "Ativo": ETF_MAP[nome]["nome"],
                 "Ticker": ticker,
-                "Preço (€)": round(preco, 2),
-                "MA50 (€)": round(ma50, 2),
-                "MA200 (€)": round(ma200, 2),
-                "Dif MA (%)": f"{diff_ma_pct:+.2f}%",
-                "BB Inf (€)": round(bb_inf, 2),
-                "BB Sup (€)": round(bb_sup, 2),
-                "RSI (14)": round(rsi, 1),
-                "Aloc. Atual": f"{peso_atual_pct:.1f}%",
-                "Aloc. Alvo": f"{peso_alvo_pct:.1f}%",
+                "Preço (€)": fmt_br(preco, 2),
+                "MA50 (€)": fmt_br(ma50, 2),
+                "MA200 (€)": fmt_br(ma200, 2),
+                "Dif MA (%)": fmt_br(diff_ma_pct, 2, signed=True, suffix="%"),
+                "BB Inf (€)": fmt_br(bb_inf, 2),
+                "BB Sup (€)": fmt_br(bb_sup, 2),
+                "RSI (14)": fmt_br(rsi, 1),
+                "Aloc. Atual": fmt_br(peso_atual_pct, 1, suffix="%"),
+                "Aloc. Alvo": fmt_br(peso_alvo_pct, 1, suffix="%"),
                 "Sinal Técnico": status_acao,
                 "Decisão Integrada": status_integrado
             })
@@ -659,8 +678,8 @@ with tab1:
                         peak = s_hist.cummax()
                         dd = (s_hist - peak) / peak
                         max_dd = dd.min() * 100
-                        st.write(f"• **Volatilidade Anualizada:** {vol_anual:.1f}%")
-                        st.write(f"• **Maximum Drawdown Hist.:** {max_dd:.1f}%")
+                        st.write(f"• **Volatilidade Anualizada:** {fmt_br(vol_anual, 1, suffix='%')}")
+                        st.write(f"• **Maximum Drawdown Hist.:** {fmt_br(max_dd, 1, suffix='%')}")
 
     st.markdown("---")
     st.subheader("📋 Relatório Dinâmico: Decisão Prática do Portfólio")
@@ -668,7 +687,7 @@ with tab1:
     with st.expander("🔍 Ver Diagnóstico Operacional Detalhado por ETF", expanded=True):
         for item in itens_diagnostico:
             st.markdown(f"### 📌 {item['nome']} (`{item['ticker']}`)")
-            st.write(f"- **Cotação Atual:** €{item['preco']:.2f} | **MA50:** €{item['ma50']:.2f} | **MA200:** €{item['ma200']:.2f}")
+            st.write(f"- **Cotação Atual:** € {fmt_br(item['preco'], 2)} | **MA50:** € {fmt_br(item['ma50'], 2)} | **MA200:** € {fmt_br(item['ma200'], 2)}")
             st.markdown(f"- **Sinal Operacional:** `{item['acao']}`")
             st.write(f"- **Diagnóstico Direto:** {item['explicacao']}")
             st.markdown("---")
@@ -706,9 +725,9 @@ with tab1:
                 for item in itens_diagnostico:
                     corpo_email1 += (
                         f"📌 {item['nome']} ({item['ticker']})\n"
-                        f"• Preço: €{item['preco']:.2f} | MA50: €{item['ma50']:.2f} | MA200: €{item['ma200']:.2f}\n"
+                        f"• Preço: € {fmt_br(item['preco'], 2)} | MA50: € {fmt_br(item['ma50'], 2)} | MA200: € {fmt_br(item['ma200'], 2)}\n"
                         f"• Sinal Recomendado: {item['acao']}\n"
-                        f"• Velocímetro (RSI 14): {item['rsi']:.1f}\n"
+                        f"• Velocímetro (RSI 14): {fmt_br(item['rsi'], 1)}\n"
                         f"• Diagnóstico: {item['explicacao']}\n\n"
                     )
                 app_domain = APP_DOMAIN
@@ -852,8 +871,8 @@ with tab2:
         df_res = pd.DataFrame({
             "ETF": list(targets.keys()),
             "Cotas a Comprar": [melhor_compras[a] for a in targets],
-            "Investimento (€)": [f"€{investir_por_ativo[a]:,.2f}" for a in targets],
-            "Saldo Final Est. (€)": [f"€{saldo_final_est[a]:,.2f}" for a in targets]
+            "Investimento (€)": [f"€ {fmt_br(investir_por_ativo[a], 2)}" for a in targets],
+            "Saldo Final Est. (€)": [f"€ {fmt_br(saldo_final_est[a], 2)}" for a in targets]
         })
         
         alocacoes_str = []
@@ -865,7 +884,7 @@ with tab2:
             if abs(pct_f - (tetos[a]*100)) < 0.2 and melhor_compras[a] > 0:
                 status_teto = " [🔒 TETO DE RISCO ATINGIDO (+5.0 pp)]"
                 trava_ativada = True
-            alocacoes_str.append(f"{a}: {pct_f:.1f}% (Alvo: {int(targets[a]*100)}% | Desvio: {desvio:+.1f} pp){status_teto}")
+            alocacoes_str.append(f"{a}: {fmt_br(pct_f, 1, suffix='%')} (Alvo: {fmt_br(targets[a]*100, 0, suffix='%')} | Desvio: {fmt_br(desvio, 1, signed=True)} pp){status_teto}")
             
         st.session_state["rebalancer_data"] = {
             "patrimonio_atual": patrimonio_atual,
@@ -892,9 +911,9 @@ with tab2:
         st.dataframe(reb["df_res"], use_container_width=True, hide_index=True)
         
         m1, m2, m3 = st.columns(3)
-        m1.metric("Patrimônio Atual", f"€{reb['patrimonio_atual']:,.2f}")
-        m2.metric("Total a Investir", f"€{reb['total_investido']:,.2f}")
-        m3.metric("Caixa Residual (Excedente)", f"€{reb['caixa_residual']:,.2f}")
+        m1.metric("Patrimônio Atual", f"€ {fmt_br(reb['patrimonio_atual'], 2)}")
+        m2.metric("Total a Investir", f"€ {fmt_br(reb['total_investido'], 2)}")
+        m3.metric("Caixa Residual (Excedente)", f"€ {fmt_br(reb['caixa_residual'], 2)}")
         
         st.markdown("#### **Alocação Final Estimada após Aporte:**")
         for aloc in reb["alocacoes_str"]:
@@ -903,11 +922,11 @@ with tab2:
         if reb["caixa_residual"] > 50.0 or reb.get("trava_ativada", False):
             st.warning(
                 f"⚠️ **Gestão de Excedente & Orientação de Tranchas Temporais (v3.4):**\n\n"
-                f"• **Capital Solicitado:** €{reb['capital']:,.2f}\n"
-                f"• **Capital Alocado Hoje:** €{reb['total_investido']:,.2f}\n"
-                f"• **Excedente Retido em Liquidez:** **€{reb['caixa_residual']:,.2f}**\n\n"
+                f"• **Capital Solicitado:** € {fmt_br(reb['capital'], 2)}\n"
+                f"• **Capital Alocado Hoje:** € {fmt_br(reb['total_investido'], 2)}\n"
+                f"• **Excedente Retido em Liquidez:** **€ {fmt_br(reb['caixa_residual'], 2)}**\n\n"
                 f"💡 **Motivo da Retenção:** Trava de Risco por Banda de Tolerância (+5.0 pp sobre o alvo) e/ou seleção tática de ativos elegíveis.\n\n"
-                f"📌 **Recomendação de Ação:** Manter o excedente de **€{reb['caixa_residual']:,.2f}** em conta-margem/caixa (or no ETF soberano de curto prazo PRAB) "
+                f"📌 **Recomendação de Ação:** Manter o excedente de **€ {fmt_br(reb['caixa_residual'], 2)}** em conta-margem/caixa (or no ETF soberano de curto prazo PRAB) "
                 f"e programar a entrada em **2 a 3 tranchas temporais (30 a 90 dias)** à medida que novas janelas de compra forem sinalizadas."
             )
 
@@ -946,10 +965,10 @@ with tab2:
                 else:
                     corpo_email2 = (
                         f"⚖️ Plano de Rebalanceamento de Carteira XTB (v3.4)\nData: {data_hoje2}\n\n"
-                        f"• Patrimônio Atual: €{reb['patrimonio_atual']:,.2f}\n"
-                        f"• Capital Disponível: €{reb['capital']:,.2f}\n"
-                        f"• Total Efetivamente Investido: €{reb['total_investido']:,.2f}\n"
-                        f"• Excedente Retido em Liquidez: €{reb['caixa_residual']:,.2f}\n\n"
+                        f"• Patrimônio Atual: € {fmt_br(reb['patrimonio_atual'], 2)}\n"
+                        f"• Capital Disponível: € {fmt_br(reb['capital'], 2)}\n"
+                        f"• Total Efetivamente Investido: € {fmt_br(reb['total_investido'], 2)}\n"
+                        f"• Excedente Retido em Liquidez: € {fmt_br(reb['caixa_residual'], 2)}\n\n"
                         f"📝 Ordens de Compra Sugeridas:\n"
                     )
                     for rec in reb["df_res"].to_dict(orient="records"):
@@ -962,7 +981,7 @@ with tab2:
                     if reb["caixa_residual"] > 50.0:
                         corpo_email2 += (
                             f"\n⚠️ Gestão de Excedente & Tranchas:\n"
-                            f"Excedente de €{reb['caixa_residual']:,.2f} retido por trava de risco (+5.0 pp). Recomendado fracionar em 2-3 tranchas (30-90 dias).\n"
+                            f"Excedente de € {fmt_br(reb['caixa_residual'], 2)} retido por trava de risco (+5.0 pp). Recomendado fracionar em 2-3 tranchas (30-90 dias).\n"
                         )
                     
                     app_domain = "etf-xtb-alerta." + "streamlit.app"
@@ -1085,7 +1104,7 @@ with tab3:
         if sobrealocados:
             sobrealocados.sort(key=lambda x: x[1], reverse=True)
             ativo_venda = sobrealocados[0][0]
-            justificativa_saque = f"Realização tática de lucros e reequilíbrio em {ativo_venda} (sobrealocado em +{sobrealocados[0][1]:.1f} pp e desprotegido de venda)."
+            justificativa_saque = f"Realização tática de lucros e reequilíbrio em {ativo_venda} (sobrealocado em {fmt_br(sobrealocados[0][1], 1, signed=True)} pp e desprotegido de venda)."
         elif protecao_input.get("PRAB", False):
             for a in ["XDEQ", "IBCI"]:
                 if not protecao_input.get(a, False):
@@ -1120,10 +1139,10 @@ with tab3:
 
             tabela_saque.append({
                 "Ativo": a,
-                "Saldo (€)": f"€{val_pos[a]:,.2f}",
-                "% Atual": f"{pct_atual:.1f}%",
-                "% Meta": f"{pct_meta:.1f}%",
-                "Desvio": f"{desvio_pp:+.1f} pp"
+                "Saldo (€)": f"€ {fmt_br(val_pos[a], 2)}",
+                "% Atual": fmt_br(pct_atual, 1, suffix="%"),
+                "% Meta": fmt_br(pct_meta, 1, suffix="%"),
+                "Desvio": fmt_br(desvio_pp, 1, signed=True, suffix=" pp")
             })
 
         df_saque_pos = pd.DataFrame(tabela_saque)
@@ -1161,8 +1180,8 @@ with tab3:
 
         s1, s2 = st.columns(2)
         with s1:
-            st.metric("Saque Teórico (3.5% + HICP)", f"€{sq['saque_teorico']:,.2f}")
-            st.metric("Valor Efetivamente Sacado", f"€{sq['saque_efetivo']:,.2f}")
+            st.metric("Saque Teórico (3,5% + HICP)", f"€ {fmt_br(sq['saque_teorico'], 2)}")
+            st.metric("Valor Efetivamente Sacado", f"€ {fmt_br(sq['saque_efetivo'], 2)}")
             st.info(f"**Ordem de Venda Prioritária:** Vender **{sq['cotas_venda']} cotas** de **{sq['ativo_venda']}**")
 
         with s2:
@@ -1224,10 +1243,10 @@ with tab3:
                     corpo_email3 = (
                         f"💸 Carteira Ideal UCITS - Gestão Anual de Saque & Reequilíbrio (v3.5)\n"
                         f"Data da Operação: {data_venda_str}\n\n"
-                        f"• Patrimônio Inicial: €{sq['patrimonio_inicial']:,.2f}\n"
-                        f"• Inflação HICP: {hicp:.1f}%\n"
-                        f"• Saque Teórico (3.5% + HICP): €{sq['saque_teorico']:,.2f}\n"
-                        f"• Valor Efetivamente Sacado: €{sq['saque_efetivo']:,.2f}\n"
+                        f"• Patrimônio Inicial: € {fmt_br(sq['patrimonio_inicial'], 2)}\n"
+                        f"• Inflação HICP: {fmt_br(hicp, 1, suffix='%')}\n"
+                        f"• Saque Teórico (3,5% + HICP): € {fmt_br(sq['saque_teorico'], 2)}\n"
+                        f"• Valor Efetivamente Sacado: € {fmt_br(sq['saque_efetivo'], 2)}\n"
                         f"• Ordem de Venda: {sq['ativo_venda']} ({sq['cotas_venda']} cotas)\n"
                         f"• Justificativa Tática: {sq['justificativa_saque']}\n\n"
                         f"📊 Estado da Carteira Pós-Venda:\n"
@@ -1308,17 +1327,17 @@ with tab4:
         meta_venda = round(float(ma20 + 1.8 * std20), 2)
         estrategia_nome = "Curto Prazo Tático (Volatilidade / Bollinger)"
         with col_strat2:
-            st.metric("Meta de Compra Calculada (Bollinger)", f"{moeda_alvo} {meta_compra:.2f}")
+            st.metric("Meta de Compra Calculada (Bollinger)", f"{moeda_alvo} {fmt_br(meta_compra, 2)}")
         with col_strat3:
-            st.metric("Meta de Venda Calculada (Bollinger)", f"{moeda_alvo} {meta_venda:.2f}")
+            st.metric("Meta de Venda Calculada (Bollinger)", f"{moeda_alvo} {fmt_br(meta_venda, 2)}")
     else:
         meta_compra = round(float(np.percentile(df_cambio['rate'].dropna(), 15)), 2)
         meta_venda = round(float(np.percentile(df_cambio['rate'].dropna(), 85)), 2)
         estrategia_nome = "Médio/Longo Prazo (Percentis Históricos)"
         with col_strat2:
-            st.metric("Meta de Compra Calculada (P15)", f"{moeda_alvo} {meta_compra:.2f}")
+            st.metric("Meta de Compra Calculada (P15)", f"{moeda_alvo} {fmt_br(meta_compra, 2)}")
         with col_strat3:
-            st.metric("Meta de Venda Calculada (P85)", f"{moeda_alvo} {meta_venda:.2f}")
+            st.metric("Meta de Venda Calculada (P85)", f"{moeda_alvo} {fmt_br(meta_venda, 2)}")
 
     df_proj = arima_projecao_cambio(df_cambio, dias=30)
     ret_cambio = df_cambio['rate'].pct_change().dropna()
@@ -1337,30 +1356,30 @@ with tab4:
     # 4 Estados Operacionais para Câmbio
     if z_score <= -1.5 or s0 <= bb_inf:
         diag = "🟢 [COMPRA TÁTICA - SOBREVENDIDO]"
-        explicacao_cambio = f"O par {moeda_base}/{moeda_alvo} encontra-se estatisticamente sobrevendido (Z-Score: {z_score:.2f} std, Cotação: {moeda_alvo} {s0:.4f}). Excelente janela para antecipar compras."
+        explicacao_cambio = f"O par {moeda_base}/{moeda_alvo} encontra-se estatisticamente sobrevendido (Z-Score: {fmt_br(z_score, 2)} std, Cotação: {moeda_alvo} {fmt_br(s0, 4)}). Excelente janela para antecipar compras."
     elif z_score >= 1.8 or s0 >= bb_sup:
         diag = "🔴 [VENDA FAVORÁVEL / SOBRECOMPRADO]"
-        explicacao_cambio = f"O par {moeda_base}/{moeda_alvo} encontra-se sobrecomprado no limite superior (Z-Score: {z_score:.2f} std, Cotação: {moeda_alvo} {s0:.4f}). Momento ideal para conversão/venda de divisas."
+        explicacao_cambio = f"O par {moeda_base}/{moeda_alvo} encontra-se sobrecomprado no limite superior (Z-Score: {fmt_br(z_score, 2)} std, Cotação: {moeda_alvo} {fmt_br(s0, 4)}). Momento ideal para conversão/venda de divisas."
     elif z_score >= 1.5:
         diag = "🟡 [AGUARDAR / PREÇO ESTICADO]"
-        explicacao_cambio = f"O par apresenta valorização acentuada de curto prazo (Z-Score: {z_score:.2f} std). Evite compras de impulso; aguarde recuo tático."
+        explicacao_cambio = f"O par apresenta valorização acentuada de curto prazo (Z-Score: {fmt_br(z_score, 2)} std). Evite compras de impulso; aguarde recuo tático."
     else:
         diag = "🔵 [COMPRA FRACIONADA / NEUTRO]"
-        explicacao_cambio = f"Cotação em níveis equilibrados em relação à média de 20 dias (Z-Score: {z_score:.2f} std). Recomenda-se a estratégia DCA (30% lote inicial + 70% ordens limite)."
+        explicacao_cambio = f"Cotação em níveis equilibrados em relação à média de 20 dias (Z-Score: {fmt_br(z_score, 2)} std). Recomenda-se a estratégia DCA (30% lote inicial + 70% ordens limite)."
 
     # Tabela Resumo Numérico dos Indicadores Cambiais
     registos_num_cambio = [{
         "Par": f"{moeda_base}/{moeda_alvo}",
-        "Spot": f"{s0:.4f}",
-        "Compra Ef.": f"{s_compra:.4f}",
-        "Venda Ef.": f"{s_venda:.4f}",
-        "MA20": f"{ma20_val:.4f}",
-        "MA90": f"{ma90_val:.4f}",
-        "Dif MA20 (%)": f"{diff_ma20_pct:+.2f}%",
-        "BB Inf": f"{bb_inf:.4f}",
-        "BB Sup": f"{bb_sup:.4f}",
-        "Z-Score": f"{z_score:.2f}",
-        "Vol. Anual": f"{vol_anual_cambio:.1f}%",
+        "Spot": fmt_br(s0, 4),
+        "Compra Ef.": fmt_br(s_compra, 4),
+        "Venda Ef.": fmt_br(s_venda, 4),
+        "MA20": fmt_br(ma20_val, 4),
+        "MA90": fmt_br(ma90_val, 4),
+        "Dif MA20 (%)": fmt_br(diff_ma20_pct, 2, signed=True, suffix="%"),
+        "BB Inf": fmt_br(bb_inf, 4),
+        "BB Sup": fmt_br(bb_sup, 4),
+        "Z-Score": fmt_br(z_score, 2),
+        "Vol. Anual": fmt_br(vol_anual_cambio, 1, suffix="%"),
         "Sinal Operacional": diag
     }]
     df_resumo_cambio = pd.DataFrame(registos_num_cambio)
@@ -1370,10 +1389,10 @@ with tab4:
     st.dataframe(df_resumo_cambio, use_container_width=True)
 
     m_fx1, m_fx2, m_fx3, m_fx4 = st.columns(4)
-    m_fx1.metric(f"Cotação Spot ({moeda_base}/{moeda_alvo})", f"{moeda_alvo} {s0:.4f}")
-    m_fx2.metric(f"Compra Efetiva (+{spread_pct}%)", f"{moeda_alvo} {s_compra:.4f}")
-    m_fx3.metric(f"Venda Efetiva (-{spread_pct}%)", f"{moeda_alvo} {s_venda:.4f}")
-    m_fx4.metric("Z-Score Atual", f"{z_score:.2f} std", diag)
+    m_fx1.metric(f"Cotação Spot ({moeda_base}/{moeda_alvo})", f"{moeda_alvo} {fmt_br(s0, 4)}")
+    m_fx2.metric(f"Compra Efetiva (+{fmt_br(spread_pct, 2, suffix='%')})", f"{moeda_alvo} {fmt_br(s_compra, 4)}")
+    m_fx3.metric(f"Venda Efetiva (-{fmt_br(spread_pct, 2, suffix='%')})", f"{moeda_alvo} {fmt_br(s_venda, 4)}")
+    m_fx4.metric("Z-Score Atual", f"{fmt_br(z_score, 2)} std", diag)
 
     st.info(f"💡 **Diagnóstico Operacional Cambial:** `{diag}` — {explicacao_cambio}")
 
@@ -1403,7 +1422,7 @@ with tab4:
                 iof_pct_in = 1.10
             else:
                 iof_pct_in = 0.38
-            st.metric("Alíquota de IOF Aplicada", f"{iof_pct_in:.2f}%")
+            st.metric("Alíquota de IOF Aplicada", fmt_br(iof_pct_in, 2, suffix='%'))
 
     montante_base = float(montante_converter_in)
     iof_pct = float(iof_pct_in)
@@ -1443,18 +1462,18 @@ with tab4:
     }
 
     col_sim1, col_sim2, col_sim3, col_sim4 = st.columns(4)
-    col_sim1.metric(f"Capital ({moeda_base})", f"{moeda_base} {montante_base:,.2f}")
-    col_sim2.metric("Câmbio Efetivo (VET)", f"{vet_taxa:.4f}", f"+{diff_vet_spot_pct:.2f}% vs Spot")
-    col_sim3.metric(f"Total Pago ({moeda_alvo})", f"{moeda_alvo} {valor_efetivo_compra_alvo:,.2f}")
-    col_sim4.metric(f"Total Tarifas & IOF", f"{moeda_alvo} {total_tarifas_impostos:,.2f}")
+    col_sim1.metric(f"Capital ({moeda_base})", f"{moeda_base} {fmt_br(montante_base, 2)}")
+    col_sim2.metric("Câmbio Efetivo (VET)", f"{fmt_br(vet_taxa, 4)}", f"{fmt_br(diff_vet_spot_pct, 2, signed=True, suffix='%')} vs Spot")
+    col_sim3.metric(f"Total Pago ({moeda_alvo})", f"{moeda_alvo} {fmt_br(valor_efetivo_compra_alvo, 2)}")
+    col_sim4.metric(f"Total Tarifas & IOF", f"{moeda_alvo} {fmt_br(total_tarifas_impostos, 2)}")
 
     st.info(
         f"📊 **Detalhamento Transparente da Simulação Cambial & VET (Wise/XTB Style):**\n\n"
-        f"• **1. Cotação Comercial Bruta (Spot):** `1 {moeda_base} = {s0:.4f} {moeda_alvo}` (Valor Bruto: **{moeda_alvo} {valor_bruto_alvo:,.2f}**)\n"
-        f"• **2. Tarifa da Plataforma / Spread ({spread_pct:.1f}%):** **{moeda_alvo} {custo_plataforma_alvo:,.2f}**\n"
-        f"• **3. Imposto IOF ({iof_pct:.2f}% - {tipo_operacao_iof.split('(')[0].strip()}):** **{moeda_alvo} {custo_iof_alvo:,.2f}**\n"
-        f"• **4. Total em Tarifas & Impostos:** **{moeda_alvo} {total_tarifas_impostos:,.2f}**\n"
-        f"• **5. Total Efetivo Pago:** **{moeda_alvo} {valor_efetivo_compra_alvo:,.2f}**\n\n"
+        f"• **1. Cotação Comercial Bruta (Spot):** `1 {moeda_base} = {fmt_br(s0, 4)} {moeda_alvo}` (Valor Bruto: **{moeda_alvo} {fmt_br(valor_bruto_alvo, 2)}**)\n"
+        f"• **2. Tarifa da Plataforma / Spread ({fmt_br(spread_pct, 2, suffix='%')}):** **{moeda_alvo} {fmt_br(custo_plataforma_alvo, 2)}**\n"
+        f"• **3. Imposto IOF ({fmt_br(iof_pct, 2, suffix='%')} - {tipo_operacao_iof.split('(')[0].strip()}):** **{moeda_alvo} {fmt_br(custo_iof_alvo, 2)}**\n"
+        f"• **4. Total em Tarifas & Impostos:** **{moeda_alvo} {fmt_br(total_tarifas_impostos, 2)}**\n"
+        f"• **5. Total Efetivo Pago:** **{moeda_alvo} {fmt_br(valor_efetivo_compra_alvo, 2)}**\n\n"
         f"💡 **Valor Efetivo Total (VET):** **`1 {moeda_base} = {vet_taxa:.6f} {moeda_alvo}`**\n"
         f"*(O VET combina a taxa comercial, a tarifa da plataforma e o imposto de IOF num único valor oficial conforme o Banco Central)*"
     )
@@ -1498,8 +1517,8 @@ with tab4:
         st.dataframe(res_mc['tabela_prob'], use_container_width=True, hide_index=True)
     with col_mc2:
         st.markdown("#### **Resumo das Metas Definidas:**")
-        st.metric(f"Meta de Compra (<= {moeda_alvo} {meta_compra:.2f})", f"{res_mc['prob_compra']:.1f}%", "Probabilidade de Alcance")
-        st.metric(f"Meta de Venda (>= {moeda_alvo} {meta_venda:.2f})", f"{res_mc['prob_venda']:.1f}%", "Probabilidade de Alcance")
+        st.metric(f"Meta de Compra (<= {moeda_alvo} {fmt_br(meta_compra, 2)})", fmt_br(res_mc['prob_compra'], 1, suffix='%'), "Probabilidade de Alcance")
+        st.metric(f"Meta de Venda (>= {moeda_alvo} {fmt_br(meta_venda, 2)})", fmt_br(res_mc['prob_venda'], 1, suffix='%'), "Probabilidade de Alcance")
 
     st.markdown("---")
     st.markdown("### 6. Recomendação Tática & Compras Fracionadas (DCA com VET)")
@@ -1508,9 +1527,9 @@ with tab4:
     with rec_box1:
         st.markdown("#### **Comprar Agora ou Aguardar?**")
         if res_mc['prob_compra'] > 50:
-            st.info(f"**Aguardar Recuo:** A probabilidade de atingir a meta de compra de **{moeda_alvo} {meta_compra:.2f}** é de **{res_mc['prob_compra']:.1f}%** nos próximos 30 dias úteis.")
+            st.info(f"**Aguardar Recuo:** A probabilidade de atingir a meta de compra de **{moeda_alvo} {fmt_br(meta_compra, 2)}** é de **{fmt_br(res_mc['prob_compra'], 1, suffix='%')}** nos próximos 30 dias úteis.")
         else:
-            st.warning(f"**Atenção:** A probabilidade de recuo até a meta é de apenas **{res_mc['prob_compra']:.1f}%**. Caso necessite da moeda em breve, considere executar o Lote 1 de proteção.")
+            st.warning(f"**Atenção:** A probabilidade de recuo até a meta é de apenas **{fmt_br(res_mc['prob_compra'], 1, suffix='%')}. Caso necessite da moeda em breve, considere executar o Lote 1 de proteção.")
             
     with rec_box2:
         st.markdown("#### **Estratégia de Compras Fracionadas (Lotes com VET):**")
@@ -1596,3 +1615,4 @@ if not dados.empty:
         file_name="etf_xtb_historico.csv",
         mime="text/csv"
     )
+
