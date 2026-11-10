@@ -542,20 +542,31 @@ with tab1:
 
     # 1. Posição da Carteira para Integração da Alocação-Alvo (Fase 2)
     st.markdown("### 💼 Cruzamento Integrado: Sinal Técnico vs. Alocação Atual da Carteira (Fase 2)")
-    with st.expander("⚙️ Ajustar Posição Atual do Portfólio (para Cruzamento com Alvo Estratégico)", expanded=False):
-        col_p1, col_p2, col_p3 = st.columns(3)
-        with col_p1:
-            val_prab = st.number_input("Valor Investido PRAB (€):", value=2500.0, step=100.0, key="val_prab_t1")
-        with col_p2:
-            val_xdeq = st.number_input("Valor Investido XDEQ (€):", value=3000.0, step=100.0, key="val_xdeq_t1")
-        with col_p3:
-            val_ibci = st.number_input("Valor Investido IBCI (€):", value=4500.0, step=100.0, key="val_ibci_t1")
-
-    valores_atuais_port = {
-        "PRAB - Amundi 0-1Y": val_prab,
-        "XDEQ - World Quality": val_xdeq,
-        "IBCI - Inflation Linked": val_ibci
+    padroes_pos = {
+        "PRAB": {"cotas": 654, "ticker": "PRAB.DE", "nome_full": "PRAB - Amundi 0-1Y"},
+        "IBCI": {"cotas": 110, "ticker": "IBCI.DE", "nome_full": "IBCI - Inflation Linked"},
+        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "nome_full": "XDEQ - World Quality"}
     }
+
+    with st.expander("⚙️ Ajustar Posição Atual do Portfólio (Sincronizado entre todas as Abas)", expanded=False):
+        st.caption("💡 **Sincronização Automática:** As Cotas e Preços definidos aqui são sincronizados em tempo real com a Calculadora de Rebalanceamento (Aba 2) e o Módulo de Saque (Aba 3), calculando automaticamente o valor investido em Euros.")
+        col_p1, col_p2, col_p3 = st.columns(3)
+        cols_p = [col_p1, col_p2, col_p3]
+        
+        valores_atuais_port = {}
+        for idx, (sigla, p_info) in enumerate(padroes_pos.items()):
+            tk = p_info["ticker"]
+            p_live = 20.0
+            if not dados.empty and tk in dados.columns:
+                p_live = float(dados[tk].dropna().iloc[-1])
+                
+            with cols_p[idx]:
+                st.markdown(f"#### **{sigla}**")
+                c_val = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=p_info["cotas"], key=f"c_{sigla}")
+                p_val = st.number_input(f"Preço Unitário (€) ({sigla})", min_value=0.01, value=p_live, format="%.2f", key=f"p_{sigla}")
+                val_inv = c_val * p_val
+                st.metric(f"Valor Investido ({sigla})", f"€ {fmt_br(val_inv, 2)}")
+                valores_atuais_port[p_info["nome_full"]] = val_inv
     total_port_t1 = sum(valores_atuais_port.values()) if sum(valores_atuais_port.values()) > 0 else 1.0
 
     st.subheader("📊 Tabela de Resumo Numérico dos Indicadores Técnicos & Alocação")
@@ -1074,8 +1085,8 @@ with tab3:
         with s_cols[idx]:
             st.markdown(f"#### **{sigla}** (Alvo: {int(p_data['alvo']*100)}%)")
             st.caption(f"Sinal Técnico: `{sinal_lbl}`")
-            c = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=p_data["cotas"], key=f"cs_{sigla}")
-            p = st.number_input(f"Preço (€) ({sigla})", min_value=0.01, value=preco_live, format="%.2f", key=f"ps_{sigla}")
+            c = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=p_data["cotas"], key=f"c_{sigla}")
+            p = st.number_input(f"Preço (€) ({sigla})", min_value=0.01, value=preco_live, format="%.2f", key=f"p_{sigla}")
             prot = st.checkbox(f"🛡️ Proteger contra Venda ({sigla})", value=def_prot, key=f"prot_{sigla}")
             cotas_saque_in[sigla] = c
             precos_saque_in[sigla] = p
