@@ -496,7 +496,7 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
         pdf.set_font('Helvetica', '', 10)
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Capital a Converter: {base_m} {fmt_br(sim_dados['montante_base'], 2)}"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Cotação Comercial Bruta (Spot): {alvo_m} {fmt_br(s0, 4)} | Bruto: {alvo_m} {fmt_br(sim_dados['valor_bruto_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Tarifa da Plataforma / Spread ({fmt_br(sim_dados['spread_pct'], 2, suffix='%')}): {alvo_m} {fmt_br(sim_dados['custo_plataforma_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Tarifa da Plataforma / Spread ({fmt_br(sim_dados.get('spread_pct', 0.64), 2, suffix='%')}): {alvo_m} {fmt_br(sim_dados['custo_plataforma_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Imposto IOF ({fmt_br(sim_dados['iof_pct'], 2, suffix='%')}): {alvo_m} {fmt_br(sim_dados['custo_iof_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total Pago Efetivo com Tarifas & Impostos: {alvo_m} {fmt_br(sim_dados['valor_efetivo_compra_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Valor Efetivo Total (VET): 1 {base_m} = {alvo_m} {fmt_br(sim_dados['vet_taxa'], 4)}"), new_x='LMARGIN', new_y='NEXT')
@@ -1445,6 +1445,7 @@ with tab4:
     economia_iof = valor_bruto_alvo * ((1.10 - 0.38) / 100.0)
 
     sim_dados = {
+        "spread_pct": spread_pct,
         "montante_base": montante_base,
         "valor_bruto_alvo": valor_bruto_alvo,
         "custo_plataforma_alvo": custo_plataforma_alvo,
