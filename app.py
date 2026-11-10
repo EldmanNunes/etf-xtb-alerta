@@ -1469,13 +1469,13 @@ with tab4:
     col_sim4.metric(f"Total Tarifas & IOF", f"{moeda_alvo} {fmt_br(total_tarifas_impostos, 2)}")
 
     st.info(
-        f"📊 **Detalhamento Transparente da Simulação Cambial & VET (Wise/XTB Style):**\n\n"
-        f"• **1. Cotação Comercial Bruta (Spot):** `1 {moeda_base} = {fmt_br(s0, 4)} {moeda_alvo}` (Valor Bruto: **{moeda_alvo} {fmt_br(valor_bruto_alvo, 2)}**)\n"
-        f"• **2. Tarifa da Plataforma / Spread ({fmt_br(spread_pct, 2, suffix='%')}):** **{moeda_alvo} {fmt_br(custo_plataforma_alvo, 2)}**\n"
-        f"• **3. Imposto IOF ({fmt_br(iof_pct, 2, suffix='%')} - {tipo_operacao_iof.split('(')[0].strip()}):** **{moeda_alvo} {fmt_br(custo_iof_alvo, 2)}**\n"
-        f"• **4. Total em Tarifas & Impostos:** **{moeda_alvo} {fmt_br(total_tarifas_impostos, 2)}**\n"
-        f"• **5. Total Efetivo Pago:** **{moeda_alvo} {fmt_br(valor_efetivo_compra_alvo, 2)}**\n\n"
-        f"💡 **Valor Efetivo Total (VET):** **`1 {moeda_base} = {vet_taxa:.6f} {moeda_alvo}`**\n"
+        f"📊 **Detalhamento Transparente da Simulação Cambial & VET (Wise/XTB Style):**  \n\n"
+        f"1️⃣ **Cotação Comercial Bruta (Spot):** `1 {moeda_base} = {fmt_br(s0, 4)} {moeda_alvo}` (Valor Bruto: **{moeda_alvo} {fmt_br(valor_bruto_alvo, 2)}**)  \n"
+        f"2️⃣ **Tarifa da Plataforma / Spread ({fmt_br(spread_pct, 2, suffix='%')}):** **{moeda_alvo} {fmt_br(custo_plataforma_alvo, 2)}**  \n"
+        f"3️⃣ **Imposto IOF ({fmt_br(iof_pct, 2, suffix='%')} - {tipo_operacao_iof.split('(')[0].strip()}):** **{moeda_alvo} {fmt_br(custo_iof_alvo, 2)}**  \n"
+        f"4️⃣ **Total em Tarifas & Impostos:** **{moeda_alvo} {fmt_br(total_tarifas_impostos, 2)}**  \n"
+        f"5️⃣ **Total Efetivo Pago:** **{moeda_alvo} {fmt_br(valor_efetivo_compra_alvo, 2)}**  \n\n"
+        f"💡 **Valor Efetivo Total (VET):** **`1 {moeda_base} = {fmt_br(vet_taxa, 4)} {moeda_alvo}`**  \n"
         f"*(O VET combina a taxa comercial, a tarifa da plataforma e o imposto de IOF num único valor oficial conforme o Banco Central)*"
     )
 
