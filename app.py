@@ -93,6 +93,45 @@ def carregar_dados_etfs(tickers_list, period):
 tickers_etf = [meta["ticker"] for meta in ETF_MAP.values()]
 dados = carregar_dados_etfs(tickers_etf, periodo)
 
+# Mapeamento e Posição Canónica dos ETFs (Cotas, Preço Compra/Ask & Preço Venda/Bid)
+padroes_pos_global = {
+    "PRAB": {"cotas": 654, "p_compra": 21.84, "p_venda": 21.82, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30, "nome_full": "PRAB - Amundi 0-1Y"},
+    "IBCI": {"cotas": 110, "p_compra": 230.19, "p_venda": 230.10, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50, "nome_full": "IBCI - Inflation Linked"},
+    "XDEQ": {"cotas": 208, "p_compra": 81.82, "p_venda": 81.75, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35, "nome_full": "XDEQ - World Quality"}
+}
+
+if 'carteira_etfs' not in st.session_state:
+    st.session_state['carteira_etfs'] = padroes_pos_global.copy()
+    for sigla, info in st.session_state['carteira_etfs'].items():
+        tk = info["ticker"]
+        if not dados.empty and tk in dados.columns:
+            s_t = dados[tk].dropna()
+            if not s_t.empty:
+                p_live = float(s_t.iloc[-1])
+                info["p_compra"] = round(p_live, 2)
+                info["p_venda"] = round(p_live, 2)
+
+def update_carteira_state(sigla, field, widget_key):
+    st.session_state['carteira_etfs'][sigla][field] = st.session_state[widget_key]
+
+def sincronizar_chaves_carteira():
+    for sigla in ["PRAB", "IBCI", "XDEQ"]:
+        c_val = st.session_state['carteira_etfs'][sigla]['cotas']
+        pc_val = st.session_state['carteira_etfs'][sigla]['p_compra']
+        pv_val = st.session_state['carteira_etfs'][sigla]['p_venda']
+        
+        st.session_state[f"c_t1_{sigla}"] = c_val
+        st.session_state[f"p_compra_t1_{sigla}"] = pc_val
+        st.session_state[f"p_venda_t1_{sigla}"] = pv_val
+
+        st.session_state[f"c_t2_{sigla}"] = c_val
+        st.session_state[f"p_compra_t2_{sigla}"] = pc_val
+
+        st.session_state[f"c_t3_{sigla}"] = c_val
+        st.session_state[f"p_venda_t3_{sigla}"] = pv_val
+
+sincronizar_chaves_carteira()
+
 # Função para cálculo dos indicadores de ETFs
 def calcular_indicadores_etf(serie):
     df = pd.DataFrame({'Preco': serie})
@@ -517,6 +556,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # TAB 1: ANÁLISE TÉCNICA E RELATÓRIO
 # =========================================================
 with tab1:
+    sincronizar_chaves_carteira()
     etfs_selecionados = list(ETF_MAP.keys())
     
     # Banner de Metadados de Auditoria e Rastreabilidade (v3.1)
@@ -548,25 +588,29 @@ with tab1:
         "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "nome_full": "XDEQ - World Quality"}
     }
 
-    with st.expander("⚙️ Ajustar Posição Atual do Portfólio (Sincronizado entre todas as Abas)", expanded=False):
-        st.caption("💡 **Sincronização Automática:** As Cotas e Preços definidos aqui são sincronizados em tempo real com a Calculadora de Rebalanceamento (Aba 2) e o Módulo de Saque (Aba 3), calculando automaticamente o valor investido em Euros.")
+    with st.expander("⚙️ Ajustar Posição Atual do Portfólio & Preços Bid/Ask (Sincronizado entre todas as Abas)", expanded=True):
+        st.caption("💡 **Sincronização Automática:** As Cotas, Preço de Compra (Ask) e Preço de Venda (Bid) definidos aqui são sincronizados em tempo real com a Calculadora de Rebalanceamento (Aba 2 - Compra) e a Gestão de Saque (Aba 3 - Venda), calculando automaticamente os valores investidos.")
         col_p1, col_p2, col_p3 = st.columns(3)
         cols_p = [col_p1, col_p2, col_p3]
         
         valores_atuais_port = {}
-        for idx, (sigla, p_info) in enumerate(padroes_pos.items()):
-            tk = p_info["ticker"]
-            p_live = 20.0
-            if not dados.empty and tk in dados.columns:
-                p_live = float(dados[tk].dropna().iloc[-1])
+        for idx, (sigla, p_info) in enumerate(padroes_pos_global.items()):
+            c_val = st.session_state['carteira_etfs'][sigla]['cotas']
+            pc_val = st.session_state['carteira_etfs'][sigla]['p_compra']
+            pv_val = st.session_state['carteira_etfs'][sigla]['p_venda']
                 
             with cols_p[idx]:
                 st.markdown(f"#### **{sigla}**")
-                c_val = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=p_info["cotas"], key=f"c_{sigla}")
-                p_val = st.number_input(f"Preço Unitário (€) ({sigla})", min_value=0.01, value=p_live, format="%.2f", key=f"p_{sigla}")
-                val_inv = c_val * p_val
-                st.metric(f"Valor Investido ({sigla})", f"€ {fmt_br(val_inv, 2)}")
-                valores_atuais_port[p_info["nome_full"]] = val_inv
+                c_in = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=c_val, key=f"c_t1_{sigla}", on_change=update_carteira_state, args=(sigla, 'cotas', f"c_t1_{sigla}"))
+                pc_in = st.number_input(f"Preço Compra / Ask (€) ({sigla})", min_value=0.01, value=pc_val, format="%.2f", key=f"p_compra_t1_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_compra', f"p_compra_t1_{sigla}"))
+                pv_in = st.number_input(f"Preço Venda / Bid (€) ({sigla})", min_value=0.01, value=pv_val, format="%.2f", key=f"p_venda_t1_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_venda', f"p_venda_t1_{sigla}"))
+                
+                val_inv_compra = c_in * pc_in
+                val_inv_venda = c_in * pv_in
+                
+                st.metric(f"Valor Investido Compra ({sigla})", f"€ {fmt_br(val_inv_compra, 2)}")
+                st.metric(f"Valor Liquidação Venda ({sigla})", f"€ {fmt_br(val_inv_venda, 2)}")
+                valores_atuais_port[p_info["nome_full"]] = val_inv_compra
     total_port_t1 = sum(valores_atuais_port.values()) if sum(valores_atuais_port.values()) > 0 else 1.0
 
     st.subheader("📊 Tabela de Resumo Numérico dos Indicadores Técnicos & Alocação")
@@ -759,6 +803,7 @@ with tab1:
 # TAB 2: CALCULADORA DE REBALANCEAMENTO
 # =========================================================
 with tab2:
+    sincronizar_chaves_carteira()
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
     st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.4 - Rebalanceamento Seletivo & Trava de Risco):** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Trava de Risco (+5.0 pp) | Filtro de Sinais Técnicos")
     st.subheader("⚖️ Calculadora de Rebalanceamento XTB por Novo Aporte (v3.4)")
@@ -803,22 +848,19 @@ with tab2:
                         sinais_auto[sigla] = ("🔵 MANTER (Neutro)", True)
     
     for idx, (sigla, p_data) in enumerate(padroes.items()):
-        ticker = p_data["ticker"]
-        preco_live = 20.0
-        if not dados.empty and ticker in dados.columns:
-            preco_live = float(dados[ticker].dropna().iloc[-1])
-            
         sinal_lbl, default_chk = sinais_auto.get(sigla, ("🟢 ELEGÍVEL", True))
+        c_val = st.session_state['carteira_etfs'][sigla]['cotas']
+        pc_val = st.session_state['carteira_etfs'][sigla]['p_compra']
         
         with c_cols[idx]:
             st.markdown(f"#### **{sigla}** (Alvo: {int(p_data['alvo']*100)}%)")
             st.caption(f"Sinal Técnico: `{sinal_lbl}`")
-            cotas = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=p_data["cotas"], key=f"c_{sigla}")
-            preco = st.number_input(f"Preço Unitário (€) ({sigla})", min_value=0.01, value=preco_live, format="%.2f", key=f"p_{sigla}")
+            cotas = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=c_val, key=f"c_t2_{sigla}", on_change=update_carteira_state, args=(sigla, 'cotas', f"c_t2_{sigla}"))
+            preco_compra = st.number_input(f"Preço Compra / Ask (€) ({sigla})", min_value=0.01, value=pc_val, format="%.2f", key=f"p_compra_t2_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_compra', f"p_compra_t2_{sigla}"))
             elegivel = st.checkbox(f"Autorizar Compra ({sigla})", value=default_chk, key=f"chk_{sigla}")
             
             cotas_input[sigla] = cotas
-            precos_input[sigla] = preco
+            precos_input[sigla] = preco_compra
             elegivel_input[sigla] = elegivel
 
     def processar_rebalanceamento():
@@ -1011,6 +1053,7 @@ with tab2:
 # TAB 3: GESTÃO ANUAL DE SAQUE & REEQUILÍBRIO
 # =========================================================
 with tab3:
+    sincronizar_chaves_carteira()
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
     st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.5 - Saque Inteligente & Proteção de Fundo):** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.5 (Fase 3 Completa - Fichas Técnicas & Proteção de Fundo)")
     st.subheader("💸 Gestão Anual de Saque & Reequilíbrio UCITS")
@@ -1075,21 +1118,18 @@ with tab3:
     protecao_input = {}
 
     for idx, (sigla, p_data) in enumerate(padroes_saque.items()):
-        ticker = p_data["ticker"]
-        preco_live = 20.0
-        if not dados.empty and ticker in dados.columns:
-            preco_live = float(dados[ticker].dropna().iloc[-1])
-
         sinal_lbl, def_prot = sinais_saque_auto.get(sigla, ("🔵 NEUTRO", False))
+        c_val = st.session_state['carteira_etfs'][sigla]['cotas']
+        pv_val = st.session_state['carteira_etfs'][sigla]['p_venda']
 
         with s_cols[idx]:
             st.markdown(f"#### **{sigla}** (Alvo: {int(p_data['alvo']*100)}%)")
             st.caption(f"Sinal Técnico: `{sinal_lbl}`")
-            c = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=p_data["cotas"], key=f"c_{sigla}")
-            p = st.number_input(f"Preço (€) ({sigla})", min_value=0.01, value=preco_live, format="%.2f", key=f"p_{sigla}")
+            c = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=c_val, key=f"c_t3_{sigla}", on_change=update_carteira_state, args=(sigla, 'cotas', f"c_t3_{sigla}"))
+            p_venda = st.number_input(f"Preço Venda / Bid (€) ({sigla})", min_value=0.01, value=pv_val, format="%.2f", key=f"p_venda_t3_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_venda', f"p_venda_t3_{sigla}"))
             prot = st.checkbox(f"🛡️ Proteger contra Venda ({sigla})", value=def_prot, key=f"prot_{sigla}")
             cotas_saque_in[sigla] = c
-            precos_saque_in[sigla] = p
+            precos_saque_in[sigla] = p_venda
             protecao_input[sigla] = prot
 
     def processar_saque():
