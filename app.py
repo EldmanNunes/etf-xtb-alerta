@@ -1274,7 +1274,7 @@ with tab4:
         dt_inicio = st.date_input("Data Inicial do Histórico:", value=date(2024, 1, 1), format="DD/MM/YYYY", key="fx_dt_ini")
         dt_inicio_str = dt_inicio.strftime("%Y-%m-%d")
     with c_fx4:
-        spread_pct = st.number_input("Spread Bancário / Plataforma (%)", min_value=0.0, max_value=10.0, value=1.5, step=0.1, key="fx_spread")
+        spread_pct = st.number_input("Spread Bancário / Plataforma (%)", min_value=0.0, max_value=10.0, value=0.64, step=0.01, format="%.2f", key="fx_spread")
 
     st.markdown("---")
     st.markdown("### 1. Estratégia e Definição de Metas")
@@ -1596,4 +1596,3 @@ if not dados.empty:
         file_name="etf_xtb_historico.csv",
         mime="text/csv"
     )
-
