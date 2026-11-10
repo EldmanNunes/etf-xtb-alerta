@@ -409,9 +409,9 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font('Helvetica', 'B', 15)
-    pdf.cell(pdf.epw, 9, sanitizar_pdf(f'Relatório de Análise Cambial {base_m}/{alvo_m} (v3.3)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.cell(pdf.epw, 9, sanitizar_pdf(f'Relatório de Análise Cambial {base_m}/{alvo_m} (v3.6 - VET & IOF)'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.set_font('Helvetica', 'I', 9)
-    pdf.cell(pdf.epw, 5, sanitizar_pdf(f'Data de Emissao: {data_str} | API: Frankfurter (ECB) | Monte Carlo, ARIMA & Simulador DCA'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.cell(pdf.epw, 5, sanitizar_pdf(f'Data de Emissao: {data_str} | API: Frankfurter (ECB) | Monte Carlo, ARIMA & VET (Wise/XTB)'), new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.ln(4)
 
     # 1. Tabela Resumo dos Indicadores Cambiais
@@ -473,12 +473,15 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
 
     if sim_dados:
         pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(pdf.epw, 7, sanitizar_pdf('5. Simulação Financeira da Operação & Lotes DCA (Valores Absolutos)'), new_x='LMARGIN', new_y='NEXT')
+        pdf.cell(pdf.epw, 7, sanitizar_pdf('5. Simulação Financeira, VET & Lotes DCA (Valores Absolutos)'), new_x='LMARGIN', new_y='NEXT')
         pdf.set_font('Helvetica', '', 10)
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Capital a Converter: {base_m} {sim_dados['montante_base']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total Efetivo a Receber/Pagar (+Spread): {alvo_m} {sim_dados['valor_efetivo_compra_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Custo Absoluto do Spread Bancário: {alvo_m} {sim_dados['custo_spread_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
-        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Lote 1 (30% Proteção Imediata): {base_m} {sim_dados['lote1_base']:,.2f} -> {alvo_m} {sim_dados['lote1_efetivo_alvo']:,.2f} à taxa {s_compra:.4f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Cotação Comercial Bruta (Spot): {alvo_m} {s0:.4f} | Bruto: {alvo_m} {sim_dados['valor_bruto_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Tarifa da Plataforma / Spread: {alvo_m} {sim_dados['custo_plataforma_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Imposto IOF ({sim_dados['iof_pct']:.2f}%): {alvo_m} {sim_dados['custo_iof_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total Pago Efetivo com Tarifas & Impostos: {alvo_m} {sim_dados['valor_efetivo_compra_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Valor Efetivo Total (VET): 1 {base_m} = {alvo_m} {sim_dados['vet_taxa']:.6f}"), new_x='LMARGIN', new_y='NEXT')
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Lote 1 (30% Proteção Imediata): {base_m} {sim_dados['lote1_base']:,.2f} -> {alvo_m} {sim_dados['lote1_efetivo_alvo']:,.2f} (Taxa VET {sim_dados['vet_taxa']:.4f})"), new_x='LMARGIN', new_y='NEXT')
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Lotes 2 e 3 (70% Ordens Limite em Recuos): {base_m} {sim_dados['lotes23_base']:,.2f} -> {alvo_m} {sim_dados['lotes23_efetivo_alvo']:,.2f}"), new_x='LMARGIN', new_y='NEXT')
 
     return bytes(pdf.output())
@@ -1257,10 +1260,10 @@ with tab3:
 # TAB 4: ANÁLISE CAMBIAL & PROJEÇÃO
 # =========================================================
 with tab4:
-    st.subheader("💱 Fluxo Integrado de Análise Cambial & Projeção")
+    st.subheader("💱 Fluxo Integrado de Análise Cambial, VET & Projeção")
     
     data_hora_atual4 = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.3 - Cambial Fase 2 Integrada):** Atualizado em: {data_hora_atual4} UTC | API: Frankfurter (Câmbio Oficial) | Fonte: ECB (Banco Central Europeu)")
+    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.6 - Cambial, VET & IOF Integrados):** Atualizado em: {data_hora_atual4} UTC | API: Frankfurter (Câmbio Oficial) | Fonte: ECB (Banco Central Europeu)")
 
     c_fx1, c_fx2, c_fx3, c_fx4 = st.columns(4)
     with c_fx1:
@@ -1271,7 +1274,7 @@ with tab4:
         dt_inicio = st.date_input("Data Inicial do Histórico:", value=date(2024, 1, 1), format="DD/MM/YYYY", key="fx_dt_ini")
         dt_inicio_str = dt_inicio.strftime("%Y-%m-%d")
     with c_fx4:
-        spread_pct = st.number_input("Spread Bancário Estimado (%)", min_value=0.0, max_value=10.0, value=1.5, step=0.1, key="fx_spread")
+        spread_pct = st.number_input("Spread Bancário / Plataforma (%)", min_value=0.0, max_value=10.0, value=1.5, step=0.1, key="fx_spread")
 
     st.markdown("---")
     st.markdown("### 1. Estratégia e Definição de Metas")
@@ -1375,36 +1378,91 @@ with tab4:
     st.info(f"💡 **Diagnóstico Operacional Cambial:** `{diag}` — {explicacao_cambio}")
 
     st.markdown("---")
-    st.markdown("### 3. Simulador de Conversão Cambial & DCA em Valores Absolutos (Fase 2)")
-    with st.expander("⚙️ Ajustar Montante a Converter (para Cálculo de Lotes DCA em Valores Absolutos)", expanded=True):
-        montante_converter_in = st.number_input(f"Montante a Converter ({moeda_base}):", min_value=100.0, value=5000.0, step=500.0, key="fx_montante_conv")
+    st.markdown("### 3. Simulador de Conversão Cambial, VET & Impostos (Wise/XTB Style)")
+    
+    with st.expander("⚙️ Ajustar Parâmetros da Operação (Montante, Finalidade/IOF e Tarifas)", expanded=True):
+        col_sim_in1, col_sim_in2, col_sim_in3 = st.columns(3)
+        with col_sim_in1:
+            montante_converter_in = st.number_input(f"Montante a Converter ({moeda_base}):", min_value=50.0, value=1000.0, step=100.0, key="fx_montante_conv")
+        with col_sim_in2:
+            tipo_operacao_iof = st.selectbox(
+                "Finalidade da Operação (Taxa de IOF):",
+                options=[
+                    "🏦 Investimentos / Corretora no Exterior (IOF: 0,38%)",
+                    "💳 Disponibilidade no Exterior / Conta Pessoal (IOF: 1,10%)",
+                    "⚙️ Taxa de IOF Personalizada"
+                ],
+                index=0,
+                key="fx_tipo_iof",
+                help="No Brasil, transferências para investimento/corretora no exterior pagam 0,38% de IOF. Transferências para conta pessoal do mesmo titular pagam 1,10%."
+            )
+        with col_sim_in3:
+            if "Personalizado" in tipo_operacao_iof:
+                iof_pct_in = st.number_input("Taxa de IOF Customizada (%)", min_value=0.0, max_value=10.0, value=0.38, step=0.01, key="fx_iof_custom")
+            elif "1,10%" in tipo_operacao_iof:
+                iof_pct_in = 1.10
+            else:
+                iof_pct_in = 0.38
+            st.metric("Alíquota de IOF Aplicada", f"{iof_pct_in:.2f}%")
 
     montante_base = float(montante_converter_in)
-    valor_spot_alvo = montante_base * s0
-    valor_efetivo_compra_alvo = montante_base * s_compra
-    custo_spread_alvo = valor_efetivo_compra_alvo - valor_spot_alvo
+    iof_pct = float(iof_pct_in)
+
+    valor_bruto_alvo = montante_base * s0
+    custo_plataforma_alvo = valor_bruto_alvo * (spread_pct / 100.0)
+    custo_iof_alvo = valor_bruto_alvo * (iof_pct / 100.0)
+    total_tarifas_impostos = custo_plataforma_alvo + custo_iof_alvo
+    valor_efetivo_compra_alvo = valor_bruto_alvo + total_tarifas_impostos
+    
+    vet_taxa = valor_efetivo_compra_alvo / montante_base if montante_base > 0 else s_compra
+    diff_vet_spot_pct = ((vet_taxa - s0) / s0) * 100 if s0 > 0 else 0.0
 
     lote1_base = montante_base * 0.30
-    lote1_efetivo_alvo = lote1_base * s_compra
+    lote1_efetivo_alvo = lote1_base * vet_taxa
 
     lotes23_base = montante_base * 0.70
-    lotes23_efetivo_alvo = lotes23_base * s_compra
+    lotes23_efetivo_alvo = lotes23_base * vet_taxa
+
+    economia_iof = valor_bruto_alvo * ((1.10 - 0.38) / 100.0)
 
     sim_dados = {
         "montante_base": montante_base,
-        "valor_spot_alvo": valor_spot_alvo,
+        "valor_bruto_alvo": valor_bruto_alvo,
+        "custo_plataforma_alvo": custo_plataforma_alvo,
+        "iof_pct": iof_pct,
+        "custo_iof_alvo": custo_iof_alvo,
+        "total_tarifas_impostos": total_tarifas_impostos,
         "valor_efetivo_compra_alvo": valor_efetivo_compra_alvo,
-        "custo_spread_alvo": custo_spread_alvo,
+        "vet_taxa": vet_taxa,
         "lote1_base": lote1_base,
         "lote1_efetivo_alvo": lote1_efetivo_alvo,
         "lotes23_base": lotes23_base,
-        "lotes23_efetivo_alvo": lotes23_efetivo_alvo
+        "lotes23_efetivo_alvo": lotes23_efetivo_alvo,
+        "economia_iof": economia_iof,
+        "tipo_operacao_iof": tipo_operacao_iof
     }
 
-    col_sim1, col_sim2, col_sim3 = st.columns(3)
-    col_sim1.metric(f"Capital Aporte ({moeda_base})", f"{moeda_base} {montante_base:,.2f}")
-    col_sim2.metric(f"Total Efetivo Compra ({moeda_alvo})", f"{moeda_alvo} {valor_efetivo_compra_alvo:,.2f}", f"Spread: +{spread_pct}%")
-    col_sim3.metric(f"Custo Spread Bancário", f"{moeda_alvo} {custo_spread_alvo:,.2f}")
+    col_sim1, col_sim2, col_sim3, col_sim4 = st.columns(4)
+    col_sim1.metric(f"Capital ({moeda_base})", f"{moeda_base} {montante_base:,.2f}")
+    col_sim2.metric("Câmbio Efetivo (VET)", f"{vet_taxa:.4f}", f"+{diff_vet_spot_pct:.2f}% vs Spot")
+    col_sim3.metric(f"Total Pago ({moeda_alvo})", f"{moeda_alvo} {valor_efetivo_compra_alvo:,.2f}")
+    col_sim4.metric(f"Total Tarifas & IOF", f"{moeda_alvo} {total_tarifas_impostos:,.2f}")
+
+    st.info(
+        f"📊 **Detalhamento Transparente da Simulação Cambial & VET (Wise/XTB Style):**\n\n"
+        f"• **1. Cotação Comercial Bruta (Spot):** `1 {moeda_base} = {s0:.4f} {moeda_alvo}` (Valor Bruto: **{moeda_alvo} {valor_bruto_alvo:,.2f}**)\n"
+        f"• **2. Tarifa da Plataforma / Spread ({spread_pct:.1f}%):** **{moeda_alvo} {custo_plataforma_alvo:,.2f}**\n"
+        f"• **3. Imposto IOF ({iof_pct:.2f}% - {tipo_operacao_iof.split('(')[0].strip()}):** **{moeda_alvo} {custo_iof_alvo:,.2f}**\n"
+        f"• **4. Total em Tarifas & Impostos:** **{moeda_alvo} {total_tarifas_impostos:,.2f}**\n"
+        f"• **5. Total Efetivo Pago:** **{moeda_alvo} {valor_efetivo_compra_alvo:,.2f}**\n\n"
+        f"💡 **Valor Efetivo Total (VET):** **`1 {moeda_base} = {vet_taxa:.6f} {moeda_alvo}`**\n"
+        f"*(O VET combina a taxa comercial, a tarifa da plataforma e o imposto de IOF num único valor oficial conforme o Banco Central)*"
+    )
+
+    if abs(iof_pct - 0.38) < 0.01:
+        st.success(
+            f"🟢 **Vantagem Fiscal (IOF 0,38% - Investimento):** Ao escolher a finalidade de **Investimentos / Corretora no Exterior**, a alíquota de IOF é reduzida para **0,38%** (em vez de 1,10% da disponibilidade pessoal), gerando uma economia direta de **{moeda_alvo} {economia_iof:,.2f}** no seu aporte."
+        )
 
     st.markdown("---")
     st.markdown("### 4. Gráficos de Tendência Histórica e Projeção Preditiva ARIMA")
@@ -1444,7 +1502,7 @@ with tab4:
         st.metric(f"Meta de Venda (>= {moeda_alvo} {meta_venda:.2f})", f"{res_mc['prob_venda']:.1f}%", "Probabilidade de Alcance")
 
     st.markdown("---")
-    st.markdown("### 6. Recomendação Tática & Compras Fracionadas (DCA)")
+    st.markdown("### 6. Recomendação Tática & Compras Fracionadas (DCA com VET)")
     
     rec_box1, rec_box2 = st.columns(2)
     with rec_box1:
@@ -1455,8 +1513,8 @@ with tab4:
             st.warning(f"**Atenção:** A probabilidade de recuo até a meta é de apenas **{res_mc['prob_compra']:.1f}%**. Caso necessite da moeda em breve, considere executar o Lote 1 de proteção.")
             
     with rec_box2:
-        st.markdown("#### **Estratégia de Compras Fracionadas (Lotes):**")
-        dca_text = f"• **Lote 1 (30% do Orçamento = {moeda_base} {lote1_base:,.2f}):** Executar compra inicial de proteção à cotação efetiva de **{moeda_alvo} {s_compra:.4f}** (Montante: **{moeda_alvo} {lote1_efetivo_alvo:,.2f}**).\n\n• **Lotes 2 e 3 (70% Restante = {moeda_base} {lotes23_base:,.2f}):** Programar ordens limite de compra em recuos (Montante: **{moeda_alvo} {lotes23_efetivo_alvo:,.2f}**) conforme as metas da matriz estocástica de Monte Carlo."
+        st.markdown("#### **Estratégia de Compras Fracionadas (Lotes com VET):**")
+        dca_text = f"• **Lote 1 (30% do Orçamento = {moeda_base} {lote1_base:,.2f}):** Executar compra inicial de proteção à taxa VET de **{moeda_alvo} {vet_taxa:.4f}** (Montante Total: **{moeda_alvo} {lote1_efetivo_alvo:,.2f}**).\n\n• **Lotes 2 e 3 (70% Restante = {moeda_base} {lotes23_base:,.2f}):** Programar ordens limite de compra em recuos (Montante Total: **{moeda_alvo} {lotes23_efetivo_alvo:,.2f}**) conforme as metas da matriz estocástica de Monte Carlo."
         st.success(dca_text)
 
     # EXPORTAÇÃO TAB 4
@@ -1468,7 +1526,7 @@ with tab4:
 
     with col_pdf4:
         st.markdown("#### **Salvar Relatório Cambial em PDF**")
-        st.caption("Gere um documento PDF formatado com as cotações, projeção ARIMA e matriz Monte Carlo.")
+        st.caption("Gere um documento PDF formatado com as cotações, projeção ARIMA, matriz Monte Carlo e detalhamento do VET.")
         pdf_bytes4 = gerar_pdf_cambio(
             moeda_base, moeda_alvo, s0, s_compra, s_venda, z_score, diag,
             meta_compra, meta_venda, res_mc['prob_compra'], res_mc['prob_venda'],
@@ -1495,17 +1553,20 @@ with tab4:
                 st.warning("⚠️ Por favor, introduza o e-mail de destino.")
             else:
                 corpo_email4 = (
-                    f"💱 Relatório Integrado de Análise Cambial ({moeda_base}/{moeda_alvo}) - Versão v3.3\n"
+                    f"💱 Relatório Integrado de Análise Cambial ({moeda_base}/{moeda_alvo}) - Versão v3.6 (VET & IOF Integrado)\n"
                     f"Data da Análise: {data_hoje4}\n\n"
                     f"• Cotação Spot Atual: {moeda_alvo} {s0:.4f}\n"
-                    f"• Compra Efetiva (+{spread_pct}% spread): {moeda_alvo} {s_compra:.4f}\n"
-                    f"• Venda Efetiva (-{spread_pct}% spread): {moeda_alvo} {s_venda:.4f}\n"
+                    f"• Spread Bancário / Plataforma: {spread_pct}%\n"
                     f"• Z-Score: {z_score:.2f} std ({diag})\n"
                     f"• Volatilidade Anualizada: {vol_anual_cambio:.1f}%\n\n"
-                    f"💼 SIMULAÇÃO FINANCEIRA DE CONVERSÃO & DCA:\n"
+                    f"💼 SIMULAÇÃO FINANCEIRA DE CONVERSÃO & VET (VALOR EFETIVO TOTAL):\n"
                     f"• Capital a Converter: {moeda_base} {montante_base:,.2f}\n"
-                    f"• Total Efetivo com Spread: {moeda_alvo} {valor_efetivo_compra_alvo:,.2f}\n"
-                    f"• Custo do Spread: {moeda_alvo} {custo_spread_alvo:,.2f}\n"
+                    f"• Conversão Bruta (Spot): {moeda_alvo} {valor_bruto_alvo:,.2f}\n"
+                    f"• Tarifa da Plataforma ({spread_pct:.1f}%): {moeda_alvo} {custo_plataforma_alvo:,.2f}\n"
+                    f"• Imposto IOF ({iof_pct:.2f}%): {moeda_alvo} {custo_iof_alvo:,.2f}\n"
+                    f"• Total Pago Efetivo: {moeda_alvo} {valor_efetivo_compra_alvo:,.2f}\n"
+                    f"• Câmbio Efetivo Total (VET): 1 {moeda_base} = {vet_taxa:.6f} {moeda_alvo}\n\n"
+                    f"🎯 COMPRAS FRACIONADAS (DCA COM VET):\n"
                     f"• Lote 1 (30% Proteção): {moeda_base} {lote1_base:,.2f} -> {moeda_alvo} {lote1_efetivo_alvo:,.2f}\n"
                     f"• Lotes 2 e 3 (70% Limite): {moeda_base} {lotes23_base:,.2f} -> {moeda_alvo} {lotes23_efetivo_alvo:,.2f}\n\n"
                     f"🔮 Projeção ARIMA (30 dias úteis): {moeda_alvo} {df_proj['ARIMA'].iloc[-1]:.2f}\n"
@@ -1524,6 +1585,7 @@ with tab4:
                 else:
                     st.warning(msg)
 
+
 # Botão de Download Histórico
 st.markdown("---")
 if not dados.empty:
@@ -1534,3 +1596,4 @@ if not dados.empty:
         file_name="etf_xtb_historico.csv",
         mime="text/csv"
     )
+
