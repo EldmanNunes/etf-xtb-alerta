@@ -113,6 +113,7 @@ if 'carteira_etfs' not in st.session_state:
 
 def update_carteira_state(sigla, field, widget_key):
     st.session_state['carteira_etfs'][sigla][field] = st.session_state[widget_key]
+    sincronizar_chaves_carteira()
 
 def sincronizar_chaves_carteira():
     for sigla in ["PRAB", "IBCI", "XDEQ"]:
@@ -556,7 +557,6 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # TAB 1: ANÁLISE TÉCNICA E RELATÓRIO
 # =========================================================
 with tab1:
-    sincronizar_chaves_carteira()
     etfs_selecionados = list(ETF_MAP.keys())
     
     # Banner de Metadados de Auditoria e Rastreabilidade (v3.1)
@@ -803,7 +803,6 @@ with tab1:
 # TAB 2: CALCULADORA DE REBALANCEAMENTO
 # =========================================================
 with tab2:
-    sincronizar_chaves_carteira()
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
     st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.4 - Rebalanceamento Seletivo & Trava de Risco):** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Trava de Risco (+5.0 pp) | Filtro de Sinais Técnicos")
     st.subheader("⚖️ Calculadora de Rebalanceamento XTB por Novo Aporte (v3.4)")
@@ -1053,7 +1052,6 @@ with tab2:
 # TAB 3: GESTÃO ANUAL DE SAQUE & REEQUILÍBRIO
 # =========================================================
 with tab3:
-    sincronizar_chaves_carteira()
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
     st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.5 - Saque Inteligente & Proteção de Fundo):** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.5 (Fase 3 Completa - Fichas Técnicas & Proteção de Fundo)")
     st.subheader("💸 Gestão Anual de Saque & Reequilíbrio UCITS")
