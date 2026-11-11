@@ -1330,19 +1330,45 @@ with tab3:
 with tab4:
     st.subheader("💱 Fluxo Integrado de Análise Cambial, VET & Projeção")
     
-    data_hora_atual4 = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.6 - Cambial, VET & IOF Integrados):** Atualizado em: {data_hora_atual4} UTC | API: Frankfurter (Câmbio Oficial) | Fonte: ECB (Banco Central Europeu)")
-
-    c_fx1, c_fx2, c_fx3, c_fx4 = st.columns(4)
+    c_fx1, c_fx2, c_fx3, c_fx4, c_fx5 = st.columns(5)
     with c_fx1:
         moeda_base = st.selectbox("Moeda Base:", options=["EUR", "USD", "GBP"], index=0, key="fx_base")
     with c_fx2:
         moeda_alvo = st.selectbox("Moeda Alvo:", options=["BRL", "USD", "EUR", "GBP", "CHF"], index=0, key="fx_alvo")
     with c_fx3:
-        dt_inicio = st.date_input("Data Inicial do Histórico:", value=date(2024, 1, 1), format="DD/MM/YYYY", key="fx_dt_ini")
+        dt_inicio = st.date_input("Data Inicial Histórico:", value=date(2024, 1, 1), format="DD/MM/YYYY", key="fx_dt_ini")
         dt_inicio_str = dt_inicio.strftime("%Y-%m-%d")
+
+    df_cambio_raw = obter_dados_cambio(moeda_base, moeda_alvo, dt_inicio_str)
+    df_cambio = calcular_indicadores_cambio(df_cambio_raw)
+    s0_oficial = float(df_cambio['rate'].iloc[-1]) if not df_cambio.empty else 6.25
+
+    pair_key = f"{moeda_base}_{moeda_alvo}"
+    if "last_fx_pair" not in st.session_state or st.session_state["last_fx_pair"] != pair_key:
+        st.session_state["last_fx_pair"] = pair_key
+        st.session_state["fx_spot_user"] = s0_oficial
+
     with c_fx4:
-        spread_pct = st.number_input("Spread Bancário / Plataforma (%)", min_value=0.0, max_value=10.0, value=0.64, step=0.01, format="%.2f", key="fx_spread")
+        s0_input = st.number_input(
+            f"Cotação Spot ({moeda_base}/{moeda_alvo}):",
+            min_value=0.0001,
+            value=float(st.session_state.get("fx_spot_user", s0_oficial)),
+            step=0.0001,
+            format="%.4f",
+            key="fx_spot_user",
+            help=f"Pré-preenchido com a cotação oficial diária do BCE ({fmt_br(s0_oficial, 4)}). Ajuste livremente para usar a Cotação em Tempo Real (ex: Wise)."
+        )
+    with c_fx5:
+        spread_pct = st.number_input("Spread Plataforma (%)", min_value=0.0, max_value=10.0, value=0.64, step=0.01, format="%.2f", key="fx_spread")
+
+    s0 = float(s0_input)
+
+    data_hora_atual4 = datetime.now().strftime("%d/%m/%Y %H:%M")
+    if abs(s0 - s0_oficial) < 0.00001:
+        st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.7):** Atualizado em: {data_hora_atual4} UTC | API: Frankfurter (Câmbio Oficial BCE: **{fmt_br(s0_oficial, 4)}**) | Status: **Cotação Oficial do BCE Ativa**")
+    else:
+        var_spot_pct = ((s0 - s0_oficial) / s0_oficial) * 100 if s0_oficial > 0 else 0.0
+        st.warning(f"⚡ **Ajuste de Cotação em Tempo Real Ativo:** Cotação Oficial BCE: **`{fmt_br(s0_oficial, 4)}`** | Cotação Aplicada na Análise: **`{fmt_br(s0, 4)}`** ({fmt_br(var_spot_pct, 2, signed=True, suffix='%')} vs Oficial BCE)")
 
     st.markdown("---")
     st.markdown("### 1. Estratégia e Definição de Metas")
@@ -1355,11 +1381,6 @@ with tab4:
             index=0,
             key="fx_strat_opt"
         )
-    
-    df_cambio_raw = obter_dados_cambio(moeda_base, moeda_alvo, dt_inicio_str)
-    df_cambio = calcular_indicadores_cambio(df_cambio_raw)
-    
-    s0 = float(df_cambio['rate'].iloc[-1])
     
     if "Manual" in opcao_estrategia:
         with col_strat2:
