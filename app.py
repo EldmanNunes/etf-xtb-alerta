@@ -20,11 +20,11 @@ st.title("📊 ETF Tracker, Rebalancer & Análise Cambial XTB")
 
 # Mapeamento e Alvos Estratégicos dos ETFs
 ETF_MAP = {
-    "PRAB - Amundi 0-1Y": {
-        "ticker": "PRAB.DE", "target_pct": 0.25, "nome": "Amundi 0-1Y",
-        "isin": "LU2233156582", "ter": "0.09% p.a.",
-        "classe": "Renda Fixa Soberana Curto Prazo (Cash Equivalent)",
-        "indice": "Solactive 0-1 Year Euro Government Bond Index",
+    "IBCI - Inflation Linked": {
+        "ticker": "IBCI.DE", "target_pct": 0.45, "nome": "Inflation Linked",
+        "isin": "IE00B0M62X26", "ter": "0.09% p.a.",
+        "classe": "Renda Fixa Soberana Inflação (Zona Euro)",
+        "indice": "Bloomberg Euro Government Inflation-Linked Bond Index",
         "politica": "Acumulação"
     },
     "XDEQ - World Quality": {
@@ -34,11 +34,11 @@ ETF_MAP = {
         "indice": "MSCI World Quality Index",
         "politica": "Acumulação"
     },
-    "IBCI - Inflation Linked": {
-        "ticker": "IBCI.DE", "target_pct": 0.45, "nome": "Inflation Linked",
-        "isin": "IE00B0M62X26", "ter": "0.09% p.a.",
-        "classe": "Renda Fixa Soberana Inflação (Zona Euro)",
-        "indice": "Bloomberg Euro Government Inflation-Linked Bond Index",
+    "PRAB - Amundi 0-1Y": {
+        "ticker": "PRAB.DE", "target_pct": 0.25, "nome": "Amundi 0-1Y",
+        "isin": "LU2233156582", "ter": "0.09% p.a.",
+        "classe": "Renda Fixa Soberana Curto Prazo (Cash Equivalent)",
+        "indice": "Solactive 0-1 Year Euro Government Bond Index",
         "politica": "Acumulação"
     }
 }
@@ -95,9 +95,9 @@ dados = carregar_dados_etfs(tickers_etf, periodo)
 
 # Mapeamento e Posição Canónica dos ETFs (Cotas, Preço Compra/Ask & Preço Venda/Bid)
 padroes_pos_global = {
-    "PRAB": {"cotas": 654, "p_compra": 21.84, "p_venda": 21.82, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30, "nome_full": "PRAB - Amundi 0-1Y"},
     "IBCI": {"cotas": 110, "p_compra": 230.19, "p_venda": 230.10, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50, "nome_full": "IBCI - Inflation Linked"},
-    "XDEQ": {"cotas": 208, "p_compra": 81.82, "p_venda": 81.75, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35, "nome_full": "XDEQ - World Quality"}
+    "XDEQ": {"cotas": 208, "p_compra": 81.82, "p_venda": 81.75, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35, "nome_full": "XDEQ - World Quality"},
+    "PRAB": {"cotas": 654, "p_compra": 21.84, "p_venda": 21.82, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30, "nome_full": "PRAB - Amundi 0-1Y"}
 }
 
 if 'carteira_etfs' not in st.session_state:
@@ -116,7 +116,7 @@ def update_carteira_state(sigla, field, widget_key):
     sincronizar_chaves_carteira()
 
 def sincronizar_chaves_carteira():
-    for sigla in ["PRAB", "IBCI", "XDEQ"]:
+    for sigla in ["IBCI", "XDEQ", "PRAB"]:
         c_val = st.session_state['carteira_etfs'][sigla]['cotas']
         pc_val = st.session_state['carteira_etfs'][sigla]['p_compra']
         pv_val = st.session_state['carteira_etfs'][sigla]['p_venda']
@@ -583,9 +583,9 @@ with tab1:
     # 1. Posição da Carteira para Integração da Alocação-Alvo (Fase 2)
     st.markdown("### 💼 Cruzamento Integrado: Sinal Técnico vs. Alocação Atual da Carteira (Fase 2)")
     padroes_pos = {
-        "PRAB": {"cotas": 654, "ticker": "PRAB.DE", "nome_full": "PRAB - Amundi 0-1Y"},
         "IBCI": {"cotas": 110, "ticker": "IBCI.DE", "nome_full": "IBCI - Inflation Linked"},
-        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "nome_full": "XDEQ - World Quality"}
+        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "nome_full": "XDEQ - World Quality"},
+        "PRAB": {"cotas": 654, "ticker": "PRAB.DE", "nome_full": "PRAB - Amundi 0-1Y"}
     }
 
     with st.expander("⚙️ Ajustar Posição Atual do Portfólio & Preços Bid/Ask (Sincronizado entre todas as Abas)", expanded=True):
@@ -806,7 +806,7 @@ with tab2:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
     st.info(f"ℹ️ **Metadados de Auditoria & Rastreabilidade (v3.4 - Rebalanceamento Seletivo & Trava de Risco):** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Trava de Risco (+5.0 pp) | Filtro de Sinais Técnicos")
     st.subheader("⚖️ Calculadora de Rebalanceamento XTB por Novo Aporte (v3.4)")
-    st.caption("Alocação Alvo Estratégica: PRAB (25%) | IBCI (45%) | XDEQ (30%) | Trava de Risco (+5.0 pp sobre o alvo)")
+    st.caption("Alocação Alvo Estratégica: IBCI (45%) | XDEQ (30%) | PRAB (25%) | Trava de Risco (+5.0 pp sobre o alvo)")
     
     capital = st.number_input("Capital disponível para investir (€)", min_value=0.0, value=4000.0, step=100.0, key="cap_rebalancer")
     
@@ -818,9 +818,9 @@ with tab2:
     elegivel_input = {}
     
     padroes = {
-        "PRAB": {"cotas": 654, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30},
         "IBCI": {"cotas": 110, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50},
-        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35}
+        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35},
+        "PRAB": {"cotas": 654, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30}
     }
 
     sinais_auto = {}
@@ -863,8 +863,8 @@ with tab2:
             elegivel_input[sigla] = elegivel
 
     def processar_rebalanceamento():
-        targets = {"PRAB": 0.25, "IBCI": 0.45, "XDEQ": 0.30}
-        tetos = {"PRAB": 0.30, "IBCI": 0.50, "XDEQ": 0.35}
+        targets = {"IBCI": 0.45, "XDEQ": 0.30, "PRAB": 0.25}
+        tetos = {"IBCI": 0.50, "XDEQ": 0.35, "PRAB": 0.30}
         
         val_atual = {a: cotas_input[a] * precos_input[a] for a in cotas_input}
         patrimonio_atual = sum(val_atual.values())
@@ -875,32 +875,32 @@ with tab2:
         }
         
         melhor_erro = float('inf')
-        melhor_compras = {"PRAB": 0, "IBCI": 0, "XDEQ": 0}
+        melhor_compras = {"IBCI": 0, "XDEQ": 0, "PRAB": 0}
         
         enabled = [a for a in targets if elegivel_input.get(a, True)]
         
-        for c1 in range(max_c["PRAB"] + 1):
-            cost1 = c1 * precos_input["PRAB"]
+        for c1 in range(max_c["IBCI"] + 1):
+            cost1 = c1 * precos_input["IBCI"]
             if cost1 > capital: continue
-            for c2 in range(max_c["IBCI"] + 1):
-                cost2 = cost1 + c2 * precos_input["IBCI"]
+            for c2 in range(max_c["XDEQ"] + 1):
+                cost2 = cost1 + c2 * precos_input["XDEQ"]
                 if cost2 > capital: continue
-                for c3 in range(max_c["XDEQ"] + 1):
-                    custo_total = cost2 + c3 * precos_input["XDEQ"]
+                for c3 in range(max_c["PRAB"] + 1):
+                    custo_total = cost2 + c3 * precos_input["PRAB"]
                     if custo_total > capital: continue
                     
-                    v_f1 = val_atual["PRAB"] + c1 * precos_input["PRAB"]
-                    v_f2 = val_atual["IBCI"] + c2 * precos_input["IBCI"]
-                    v_f3 = val_atual["XDEQ"] + c3 * precos_input["XDEQ"]
+                    v_f1 = val_atual["IBCI"] + c1 * precos_input["IBCI"]
+                    v_f2 = val_atual["XDEQ"] + c2 * precos_input["XDEQ"]
+                    v_f3 = val_atual["PRAB"] + c3 * precos_input["PRAB"]
                     tot_f = patrimonio_atual + custo_total
                     
                     pct1, pct2, pct3 = v_f1/tot_f, v_f2/tot_f, v_f3/tot_f
                     
-                    if pct1 > tetos["PRAB"]: continue
-                    if pct2 > tetos["IBCI"]: continue
-                    if pct3 > tetos["XDEQ"]: continue
+                    if pct1 > tetos["IBCI"]: continue
+                    if pct2 > tetos["XDEQ"]: continue
+                    if pct3 > tetos["PRAB"]: continue
                     
-                    pcts = {"PRAB": pct1, "IBCI": pct2, "XDEQ": pct3}
+                    pcts = {"IBCI": pct1, "XDEQ": pct2, "PRAB": pct3}
                     devs = []
                     for a in enabled:
                         if pcts[a] < targets[a]:
@@ -912,7 +912,7 @@ with tab2:
                     
                     if erro < melhor_erro:
                         melhor_erro = erro
-                        melhor_compras = {"PRAB": c1, "IBCI": c2, "XDEQ": c3}
+                        melhor_compras = {"IBCI": c1, "XDEQ": c2, "PRAB": c3}
 
         investir_por_ativo = {a: melhor_compras[a] * precos_input[a] for a in targets}
         saldo_final_est = {a: val_atual[a] + investir_por_ativo[a] for a in targets}
@@ -1080,9 +1080,9 @@ with tab3:
     s_cols = st.columns(3)
 
     padroes_saque = {
-        "PRAB": {"cotas": 562, "ticker": "PRAB.DE", "alvo": 0.25},
         "IBCI": {"cotas": 110, "ticker": "IBCI.DE", "alvo": 0.45},
-        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "alvo": 0.30}
+        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "alvo": 0.30},
+        "PRAB": {"cotas": 562, "ticker": "PRAB.DE", "alvo": 0.25}
     }
 
     # Auto-detecção de sinais para Trava de Proteção contra Venda em Fundo
@@ -1137,7 +1137,7 @@ with tab3:
         pct_saque_ajustado = (taxa_saque_base / 100.0) * (1.0 + (hicp / 100.0))
         saque_teorico = patrimonio_inicial * pct_saque_ajustado
 
-        targets = {"PRAB": 0.25, "IBCI": 0.45, "XDEQ": 0.30}
+        targets = {"IBCI": 0.45, "XDEQ": 0.30, "PRAB": 0.25}
         
         ativo_venda = "PRAB"
         justificativa_saque = "Venda prioritária de PRAB seguindo a hierarquia defensiva (liquidez soberana de curto prazo)."
@@ -1197,7 +1197,7 @@ with tab3:
         df_saque_pos = pd.DataFrame(tabela_saque)
         equilibrada = max(desvios) <= 5.0
 
-        protegidos_list = [a for a in ["XDEQ", "IBCI", "PRAB"] if protecao_input.get(a, False)]
+        protegidos_list = [a for a in ["IBCI", "XDEQ", "PRAB"] if protecao_input.get(a, False)]
         protecao_info = None
         if protegidos_list:
             protecao_info = f"Ativos protegidos contra venda em fundo: {', '.join(protegidos_list)}. A venda foi bloqueada nestes ativos para mitigar o risco de sequência de retornos (Sequence of Returns Risk)."
