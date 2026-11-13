@@ -62,6 +62,27 @@ def update_carteira_state(sigla, field, widget_key):
         st.session_state['carteira_etfs'][sigla][field] = float(val) if val is not None else 0.0
     sincronizar_chaves_carteira()
 
+def sincronizar_carteira_com_historico():
+    """Sincroniza o número total de cotas em st.session_state['carteira_etfs']
+    a partir da soma dos lotes registados em st.session_state['historico_compras']."""
+    if 'historico_compras' in st.session_state and isinstance(st.session_state['historico_compras'], pd.DataFrame):
+        df_h = st.session_state['historico_compras']
+        totais = {}
+        if not df_h.empty and 'Sigla' in df_h.columns and 'Volume (Cotas)' in df_h.columns:
+            vols = pd.to_numeric(df_h['Volume (Cotas)'], errors='coerce').fillna(0)
+            df_temp = df_h.copy()
+            df_temp['Vol_Num'] = vols
+            totais = df_temp.groupby('Sigla')['Vol_Num'].sum().to_dict()
+        
+        if 'carteira_etfs' in st.session_state:
+            for sigla in ["IBCI", "XDEQ", "PRAB"]:
+                cotas_totais = int(round(float(totais.get(sigla, 0))))
+                if sigla in st.session_state['carteira_etfs']:
+                    st.session_state['carteira_etfs'][sigla]['cotas'] = cotas_totais
+
+    sincronizar_chaves_carteira()
+
+
 def sincronizar_chaves_carteira():
     for sigla in ["IBCI", "XDEQ", "PRAB"]:
         c_val = int(round(st.session_state['carteira_etfs'][sigla]['cotas'])) if st.session_state['carteira_etfs'][sigla]['cotas'] is not None else 0
@@ -259,8 +280,13 @@ def processar_importacao_excel(file_bytes):
                     st.session_state['carteira_etfs'][sigla]['cotas'] = int(round(float(vol))) if pd.notnull(vol) else 0
                     st.session_state['carteira_etfs'][sigla]['p_compra'] = float(pc) if pd.notnull(pc) else 0.0
                     st.session_state['carteira_etfs'][sigla]['p_venda'] = float(pv) if pd.notnull(pv) else 0.0
+
+        if 'Historico_Lotes' in xls.sheet_names:
+            sincronizar_carteira_com_historico()
+        else:
             sincronizar_chaves_carteira()
-        return True, "Planilha Excel importada com sucesso! Todas as abas foram atualizadas com os novos dados."
+
+        return True, "Planilha Excel importada com sucesso! Todas as abas foram sincronizadas com os novos dados."
     except Exception as e:
         return False, f"Erro ao importar planilha: {str(e)}"
 
@@ -320,6 +346,12 @@ with st.sidebar.expander("📂 Importar / Exportar Planilha Excel (.xlsx)", expa
         use_container_width=True,
         key="btn_template_sidebar"
     )
+
+st.sidebar.markdown("**Sincronização das Abas:**")
+if st.sidebar.button("🔄 Sincronizar Cotas (Histórico -> Carteira)", use_container_width=True, key="btn_sync_sidebar"):
+    sincronizar_carteira_com_historico()
+    st.sidebar.success("Cotas da Carteira (Abas 1, 2 e 3) sincronizadas com o Histórico de Lotes!")
+    st.rerun()
 
 st.sidebar.markdown("**Limpeza de Dados Pessoais (Reset de Segurança):**")
 if st.sidebar.button("🗑️ Limpar Todos os Dados da Sessão", use_container_width=True, key="btn_clear_data_sidebar"):
@@ -1767,6 +1799,7 @@ with tab4:
     )
 
     st.session_state['historico_compras'] = df_editado
+    sincronizar_carteira_com_historico()
 
     # 4. Processamento dos Cálculos de Rendimento e Performance
     if not df_editado.empty:
