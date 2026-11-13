@@ -55,14 +55,22 @@ padroes_pos_global = {
 }
 
 def update_carteira_state(sigla, field, widget_key):
-    st.session_state['carteira_etfs'][sigla][field] = st.session_state[widget_key]
+    val = st.session_state[widget_key]
+    if field == 'cotas':
+        st.session_state['carteira_etfs'][sigla][field] = int(round(val)) if val is not None else 0
+    else:
+        st.session_state['carteira_etfs'][sigla][field] = float(val) if val is not None else 0.0
     sincronizar_chaves_carteira()
 
 def sincronizar_chaves_carteira():
     for sigla in ["IBCI", "XDEQ", "PRAB"]:
-        c_val = st.session_state['carteira_etfs'][sigla]['cotas']
-        pc_val = st.session_state['carteira_etfs'][sigla]['p_compra']
-        pv_val = st.session_state['carteira_etfs'][sigla]['p_venda']
+        c_val = int(round(st.session_state['carteira_etfs'][sigla]['cotas'])) if st.session_state['carteira_etfs'][sigla]['cotas'] is not None else 0
+        pc_val = float(st.session_state['carteira_etfs'][sigla]['p_compra']) if st.session_state['carteira_etfs'][sigla]['p_compra'] is not None else 0.0
+        pv_val = float(st.session_state['carteira_etfs'][sigla]['p_venda']) if st.session_state['carteira_etfs'][sigla]['p_venda'] is not None else 0.0
+
+        st.session_state['carteira_etfs'][sigla]['cotas'] = c_val
+        st.session_state['carteira_etfs'][sigla]['p_compra'] = pc_val
+        st.session_state['carteira_etfs'][sigla]['p_venda'] = pv_val
 
         st.session_state[f"c_t1_{sigla}"] = c_val
         st.session_state[f"p_compra_t1_{sigla}"] = pc_val
@@ -175,12 +183,12 @@ def processar_importacao_excel(file_bytes):
             for _, r in df_cart.iterrows():
                 sigla = str(r.get('Sigla', '')).strip().upper()
                 if 'carteira_etfs' in st.session_state and sigla in st.session_state['carteira_etfs']:
-                    vol = float(r.get('Volume (Cotas)', r.get('Cotas', st.session_state['carteira_etfs'][sigla]['cotas'])))
-                    pc = float(r.get('Preço Compra (€)', r.get('Preço Compra', st.session_state['carteira_etfs'][sigla]['p_compra'])))
-                    pv = float(r.get('Preço Venda (€)', r.get('Preço Venda', st.session_state['carteira_etfs'][sigla]['p_venda'])))
-                    st.session_state['carteira_etfs'][sigla]['cotas'] = vol
-                    st.session_state['carteira_etfs'][sigla]['p_compra'] = pc
-                    st.session_state['carteira_etfs'][sigla]['p_venda'] = pv
+                    vol = r.get('Volume (Cotas)', r.get('Cotas', st.session_state['carteira_etfs'][sigla]['cotas']))
+                    pc = r.get('Preço Compra (€)', r.get('Preço Compra', st.session_state['carteira_etfs'][sigla]['p_compra']))
+                    pv = r.get('Preço Venda (€)', r.get('Preço Venda', st.session_state['carteira_etfs'][sigla]['p_venda']))
+                    st.session_state['carteira_etfs'][sigla]['cotas'] = int(round(float(vol))) if pd.notnull(vol) else 0
+                    st.session_state['carteira_etfs'][sigla]['p_compra'] = float(pc) if pd.notnull(pc) else 0.0
+                    st.session_state['carteira_etfs'][sigla]['p_venda'] = float(pv) if pd.notnull(pv) else 0.0
             sincronizar_chaves_carteira()
         return True, "Planilha Excel importada com sucesso! Todas as abas foram atualizadas com os novos dados."
     except Exception as e:
@@ -798,9 +806,9 @@ with tab1:
 
             with cols_p[idx]:
                 st.markdown(f"#### **{sigla}**")
-                c_in = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=c_val, key=f"c_t1_{sigla}", on_change=update_carteira_state, args=(sigla, 'cotas', f"c_t1_{sigla}"))
-                pc_in = st.number_input(f"Preço Compra / Ask (€) ({sigla})", min_value=0.01, value=pc_val, format="%.2f", key=f"p_compra_t1_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_compra', f"p_compra_t1_{sigla}"))
-                pv_in = st.number_input(f"Preço Venda / Bid (€) ({sigla})", min_value=0.01, value=pv_val, format="%.2f", key=f"p_venda_t1_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_venda', f"p_venda_t1_{sigla}"))
+                c_in = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=int(round(c_val)), key=f"c_t1_{sigla}", on_change=update_carteira_state, args=(sigla, 'cotas', f"c_t1_{sigla}"))
+                pc_in = st.number_input(f"Preço Compra / Ask (€) ({sigla})", min_value=0.01, value=float(pc_val), format="%.2f", key=f"p_compra_t1_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_compra', f"p_compra_t1_{sigla}"))
+                pv_in = st.number_input(f"Preço Venda / Bid (€) ({sigla})", min_value=0.01, value=float(pv_val), format="%.2f", key=f"p_venda_t1_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_venda', f"p_venda_t1_{sigla}"))
 
                 val_inv_compra = c_in * pc_in
                 val_inv_venda = c_in * pv_in
@@ -1046,8 +1054,8 @@ with tab2:
         with c_cols[idx]:
             st.markdown(f"#### **{sigla}** (Alvo: {int(p_data['alvo']*100)}%)")
             st.caption(f"Sinal Técnico: `{sinal_lbl}`")
-            cotas = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=c_val, key=f"c_t2_{sigla}", on_change=update_carteira_state, args=(sigla, 'cotas', f"c_t2_{sigla}"))
-            preco_compra = st.number_input(f"Preço Compra / Ask (€) ({sigla})", min_value=0.01, value=pc_val, format="%.2f", key=f"p_compra_t2_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_compra', f"p_compra_t2_{sigla}"))
+            cotas = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=int(round(c_val)), key=f"c_t2_{sigla}", on_change=update_carteira_state, args=(sigla, 'cotas', f"c_t2_{sigla}"))
+            preco_compra = st.number_input(f"Preço Compra / Ask (€) ({sigla})", min_value=0.01, value=float(pc_val), format="%.2f", key=f"p_compra_t2_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_compra', f"p_compra_t2_{sigla}"))
             elegivel = st.checkbox(f"Autorizar Compra ({sigla})", value=default_chk, key=f"chk_{sigla}")
 
             cotas_input[sigla] = cotas
@@ -1309,8 +1317,8 @@ with tab3:
         with s_cols[idx]:
             st.markdown(f"#### **{sigla}** (Alvo: {int(p_data['alvo']*100)}%)")
             st.caption(f"Sinal Técnico: `{sinal_lbl}`")
-            c = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=c_val, key=f"c_t3_{sigla}", on_change=update_carteira_state, args=(sigla, 'cotas', f"c_t3_{sigla}"))
-            p_venda = st.number_input(f"Preço Venda / Bid (€) ({sigla})", min_value=0.01, value=pv_val, format="%.2f", key=f"p_venda_t3_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_venda', f"p_venda_t3_{sigla}"))
+            c = st.number_input(f"Cotas Atuais ({sigla})", min_value=0, value=int(round(c_val)), key=f"c_t3_{sigla}", on_change=update_carteira_state, args=(sigla, 'cotas', f"c_t3_{sigla}"))
+            p_venda = st.number_input(f"Preço Venda / Bid (€) ({sigla})", min_value=0.01, value=float(pv_val), format="%.2f", key=f"p_venda_t3_{sigla}", on_change=update_carteira_state, args=(sigla, 'p_venda', f"p_venda_t3_{sigla}"))
             prot = st.checkbox(f"🛡 Proteger contra Venda ({sigla})", value=def_prot, key=f"prot_{sigla}")
             cotas_saque_in[sigla] = c
             precos_saque_in[sigla] = p_venda
