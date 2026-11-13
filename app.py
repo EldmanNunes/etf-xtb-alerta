@@ -165,17 +165,87 @@ def exportar_carteira_excel_full(df_lotes, carteira_dict):
         pd.DataFrame(rows_c).to_excel(writer, sheet_name='Carteira_Geral', index=False)
     return output.getvalue()
 
+
+# Sanitização Rigorosa do Histórico de Lotes para st.data_editor
+def sanitizar_df_historico(df):
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame(columns=[
+            "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
+        ])
+    
+    df_out = df.copy()
+    cols_req = ["ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]
+    for col in cols_req:
+        if col not in df_out.columns:
+            df_out[col] = "" if col in ["ID Posição", "Data Compra", "ETF", "Sigla"] else 0
+            
+    df_out = df_out[cols_req]
+
+    def _fix_id(val):
+        if pd.isna(val) or val == "":
+            return ""
+        if isinstance(val, float) and val.is_integer():
+            return str(int(val))
+        return str(val).strip()
+    df_out["ID Posição"] = df_out["ID Posição"].apply(_fix_id)
+
+    def _fix_date(val):
+        if pd.isna(val) or val == "":
+            return ""
+        if isinstance(val, (pd.Timestamp, datetime, date)):
+            return val.strftime("%d/%m/%Y")
+        s = str(val).strip()
+        try:
+            dt = pd.to_datetime(s, dayfirst=True)
+            return dt.strftime("%d/%m/%Y")
+        except Exception:
+            return s
+    df_out["Data Compra"] = df_out["Data Compra"].apply(_fix_date)
+
+    sigla_map_to_full = {
+        "IBCI": "IBCI - Inflation Linked",
+        "XDEQ": "XDEQ - World Quality",
+        "PRAB": "PRAB - Amundi 0-1Y"
+    }
+    full_to_sigla = {v: k for k, v in sigla_map_to_full.items()}
+
+    def _fix_sigla(row):
+        sigla_val = str(row["Sigla"]).strip().upper() if pd.notnull(row["Sigla"]) else ""
+        etf_val = str(row["ETF"]).strip() if pd.notnull(row["ETF"]) else ""
+
+        if sigla_val in sigla_map_to_full:
+            actual_sigla = sigla_val
+        elif etf_val in full_to_sigla:
+            actual_sigla = full_to_sigla[etf_val]
+        else:
+            actual_sigla = "IBCI"
+
+        actual_etf = sigla_map_to_full[actual_sigla]
+        return pd.Series([actual_etf, actual_sigla])
+
+    df_out[["ETF", "Sigla"]] = df_out.apply(_fix_sigla, axis=1)
+
+    df_out["Volume (Cotas)"] = pd.to_numeric(df_out["Volume (Cotas)"], errors='coerce').fillna(1)
+    df_out["Volume (Cotas)"] = df_out["Volume (Cotas)"].apply(lambda x: max(1, int(round(float(x)))))
+
+    df_out["Preço Abertura (€)"] = pd.to_numeric(df_out["Preço Abertura (€)"], errors='coerce').fillna(0.01)
+    df_out["Preço Abertura (€)"] = df_out["Preço Abertura (€)"].apply(lambda x: max(0.01, float(x)))
+
+    df_out["Comissão (€)"] = pd.to_numeric(df_out["Comissão (€)"], errors='coerce').fillna(0.0)
+    df_out["Comissão (€)"] = df_out["Comissão (€)"].apply(lambda x: max(0.0, float(x)))
+
+    return df_out
+
+
 def processar_importacao_excel(file_bytes):
     try:
         xls = pd.ExcelFile(file_bytes)
         # Importar Lotes
         if 'Historico_Lotes' in xls.sheet_names:
             df_lotes = pd.read_excel(xls, sheet_name='Historico_Lotes')
-            cols_req = ["ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]
-            for c in cols_req:
-                if c not in df_lotes.columns:
-                    df_lotes[c] = "" if "Data" in c or "ID" in c or "ETF" in c or "Sigla" in c else 0.0
-            st.session_state['historico_compras'] = df_lotes[cols_req]
+            st.session_state['historico_compras'] = sanitizar_df_historico(df_lotes)
+            if 'editor_lotes_compras' in st.session_state:
+                del st.session_state['editor_lotes_compras']
         
         # Importar Carteira
         if 'Carteira_Geral' in xls.sheet_names:
@@ -198,6 +268,8 @@ def limpar_dados_sessao():
     st.session_state['historico_compras'] = pd.DataFrame(columns=[
         "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
     ])
+    if 'editor_lotes_compras' in st.session_state:
+        del st.session_state['editor_lotes_compras']
     for sigla in ["IBCI", "XDEQ", "PRAB"]:
         if 'carteira_etfs' in st.session_state and sigla in st.session_state['carteira_etfs']:
             st.session_state['carteira_etfs'][sigla]['cotas'] = 0
@@ -1667,6 +1739,8 @@ with tab4:
     # 3. Tabela Editável de Histórico de Lotes (Adicionar Linhas)
     st.markdown("### 📝 Registo e Gestão de Lotes de Compra")
     st.caption("Adicione ou edite linhas diretamente na tabela abaixo para incluir novos aportes ou ordens executadas.")
+
+    st.session_state['historico_compras'] = sanitizar_df_historico(st.session_state['historico_compras'])
 
     df_editado = st.data_editor(
         st.session_state['historico_compras'],
