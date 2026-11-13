@@ -146,63 +146,6 @@ if 'carteira_etfs' not in st.session_state:
                 info["p_compra"] = round(p_live, 2)
                 info["p_venda"] = round(p_live, 2)
 
-def obter_df_lotes_demo():
-    return pd.DataFrame([
-        {"ID Posição": "2280842619", "Data Compra": "09/01/2026", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 2, "Preço Abertura (€)": 231.30, "Comissão (€)": 0.00},
-        {"ID Posição": "1002849120", "Data Compra": "15/12/2025", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 108, "Preço Abertura (€)": 230.17, "Comissão (€)": 0.00},
-        {"ID Posição": "1002849121", "Data Compra": "10/01/2026", "ETF": "XDEQ - World Quality", "Sigla": "XDEQ", "Volume (Cotas)": 208, "Preço Abertura (€)": 81.82, "Comissão (€)": 0.00},
-        {"ID Posição": "1002849122", "Data Compra": "05/01/2026", "ETF": "PRAB - Amundi 0-1Y", "Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Abertura (€)": 21.84, "Comissão (€)": 0.00}
-    ])
-
-if 'historico_compras' not in st.session_state:
-    st.session_state['historico_compras'] = sanitizar_df_historico(obter_df_lotes_demo())
-
-sincronizar_carteira_com_historico()
-
-
-# =========================================================
-# FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO EXCEL & RESET DE DADOS (GITHUB PUBLIC SAFETY)
-# =========================================================
-def gerar_modelo_excel():
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_lotes_demo = pd.DataFrame([
-            {"ID Posição": "2280842619", "Data Compra": "09/01/2026", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 2, "Preço Abertura (€)": 231.30, "Comissão (€)": 0.00},
-            {"ID Posição": "1002849120", "Data Compra": "15/12/2025", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 108, "Preço Abertura (€)": 230.17, "Comissão (€)": 0.00},
-            {"ID Posição": "1002849121", "Data Compra": "10/01/2026", "ETF": "XDEQ - World Quality", "Sigla": "XDEQ", "Volume (Cotas)": 208, "Preço Abertura (€)": 81.82, "Comissão (€)": 0.00},
-            {"ID Posição": "1002849122", "Data Compra": "05/01/2026", "ETF": "PRAB - Amundi 0-1Y", "Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Abertura (€)": 21.84, "Comissão (€)": 0.00}
-        ])
-        df_lotes_demo.to_excel(writer, sheet_name='Historico_Lotes', index=False)
-
-        df_carteira_demo = pd.DataFrame([
-            {"Sigla": "IBCI", "Volume (Cotas)": 110, "Preço Compra (€)": 230.19, "Preço Venda (€)": 230.10},
-            {"Sigla": "XDEQ", "Volume (Cotas)": 208, "Preço Compra (€)": 81.82, "Preço Venda (€)": 81.75},
-            {"Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Compra (€)": 21.84, "Preço Venda (€)": 21.82}
-        ])
-        df_carteira_demo.to_excel(writer, sheet_name='Carteira_Geral', index=False)
-    return output.getvalue()
-
-def exportar_carteira_excel_full(df_lotes, carteira_dict):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        if df_lotes is not None and not df_lotes.empty:
-            df_lotes.to_excel(writer, sheet_name='Historico_Lotes', index=False)
-        else:
-            pd.DataFrame(columns=["ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]).to_excel(writer, sheet_name='Historico_Lotes', index=False)
-
-        rows_c = []
-        if carteira_dict:
-            for sigla, d in carteira_dict.items():
-                rows_c.append({
-                    "Sigla": sigla,
-                    "Volume (Cotas)": d.get('cotas', 0),
-                    "Preço Compra (€)": d.get('p_compra', 0.0),
-                    "Preço Venda (€)": d.get('p_venda', 0.0)
-                })
-        pd.DataFrame(rows_c).to_excel(writer, sheet_name='Carteira_Geral', index=False)
-    return output.getvalue()
-
-
 # Sanitização Rigorosa do Histórico de Lotes para st.data_editor
 def sanitizar_df_historico(df):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
@@ -272,6 +215,65 @@ def sanitizar_df_historico(df):
     df_out["Comissão (€)"] = df_out["Comissão (€)"].apply(lambda x: max(0.0, float(x)))
 
     return df_out
+
+
+
+
+def obter_df_lotes_demo():
+    return pd.DataFrame([
+        {"ID Posição": "2280842619", "Data Compra": "09/01/2026", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 2, "Preço Abertura (€)": 231.30, "Comissão (€)": 0.00},
+        {"ID Posição": "1002849120", "Data Compra": "15/12/2025", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 108, "Preço Abertura (€)": 230.17, "Comissão (€)": 0.00},
+        {"ID Posição": "1002849121", "Data Compra": "10/01/2026", "ETF": "XDEQ - World Quality", "Sigla": "XDEQ", "Volume (Cotas)": 208, "Preço Abertura (€)": 81.82, "Comissão (€)": 0.00},
+        {"ID Posição": "1002849122", "Data Compra": "05/01/2026", "ETF": "PRAB - Amundi 0-1Y", "Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Abertura (€)": 21.84, "Comissão (€)": 0.00}
+    ])
+
+if 'historico_compras' not in st.session_state:
+    st.session_state['historico_compras'] = sanitizar_df_historico(obter_df_lotes_demo())
+
+sincronizar_carteira_com_historico()
+
+
+# =========================================================
+# FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO EXCEL & RESET DE DADOS (GITHUB PUBLIC SAFETY)
+# =========================================================
+def gerar_modelo_excel():
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_lotes_demo = pd.DataFrame([
+            {"ID Posição": "2280842619", "Data Compra": "09/01/2026", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 2, "Preço Abertura (€)": 231.30, "Comissão (€)": 0.00},
+            {"ID Posição": "1002849120", "Data Compra": "15/12/2025", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 108, "Preço Abertura (€)": 230.17, "Comissão (€)": 0.00},
+            {"ID Posição": "1002849121", "Data Compra": "10/01/2026", "ETF": "XDEQ - World Quality", "Sigla": "XDEQ", "Volume (Cotas)": 208, "Preço Abertura (€)": 81.82, "Comissão (€)": 0.00},
+            {"ID Posição": "1002849122", "Data Compra": "05/01/2026", "ETF": "PRAB - Amundi 0-1Y", "Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Abertura (€)": 21.84, "Comissão (€)": 0.00}
+        ])
+        df_lotes_demo.to_excel(writer, sheet_name='Historico_Lotes', index=False)
+
+        df_carteira_demo = pd.DataFrame([
+            {"Sigla": "IBCI", "Volume (Cotas)": 110, "Preço Compra (€)": 230.19, "Preço Venda (€)": 230.10},
+            {"Sigla": "XDEQ", "Volume (Cotas)": 208, "Preço Compra (€)": 81.82, "Preço Venda (€)": 81.75},
+            {"Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Compra (€)": 21.84, "Preço Venda (€)": 21.82}
+        ])
+        df_carteira_demo.to_excel(writer, sheet_name='Carteira_Geral', index=False)
+    return output.getvalue()
+
+def exportar_carteira_excel_full(df_lotes, carteira_dict):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        if df_lotes is not None and not df_lotes.empty:
+            df_lotes.to_excel(writer, sheet_name='Historico_Lotes', index=False)
+        else:
+            pd.DataFrame(columns=["ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]).to_excel(writer, sheet_name='Historico_Lotes', index=False)
+
+        rows_c = []
+        if carteira_dict:
+            for sigla, d in carteira_dict.items():
+                rows_c.append({
+                    "Sigla": sigla,
+                    "Volume (Cotas)": d.get('cotas', 0),
+                    "Preço Compra (€)": d.get('p_compra', 0.0),
+                    "Preço Venda (€)": d.get('p_venda', 0.0)
+                })
+        pd.DataFrame(rows_c).to_excel(writer, sheet_name='Carteira_Geral', index=False)
+    return output.getvalue()
 
 
 def processar_importacao_excel(file_bytes):
