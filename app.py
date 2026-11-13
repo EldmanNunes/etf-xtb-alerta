@@ -45,6 +45,48 @@ ETF_MAP = {
 }
 
 
+# Mapeamento e Posição Canónica dos ETFs (Cotas, Preço Compra/Ask & Preço Venda/Bid)
+padroes_pos_global = {
+    "IBCI": {"cotas": 110, "p_compra": 230.19, "p_venda": 230.10, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50, "nome_full": "IBCI - Inflation Linked"},
+    "XDEQ": {"cotas": 208, "p_compra": 81.82, "p_venda": 81.75, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35, "nome_full": "XDEQ - World Quality"},
+    "PRAB": {"cotas": 654, "p_compra": 21.84, "p_venda": 21.82, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30, "nome_full": "PRAB - Amundi 0-1Y"}
+}
+
+if 'carteira_etfs' not in st.session_state:
+    st.session_state['carteira_etfs'] = padroes_pos_global.copy()
+    for sigla, info in st.session_state['carteira_etfs'].items():
+        tk = info["ticker"]
+        if not dados.empty and tk in dados.columns:
+            s_t = dados[tk].dropna()
+            if not s_t.empty:
+                p_live = float(s_t.iloc[-1])
+                info["p_compra"] = round(p_live, 2)
+                info["p_venda"] = round(p_live, 2)
+
+def update_carteira_state(sigla, field, widget_key):
+    st.session_state['carteira_etfs'][sigla][field] = st.session_state[widget_key]
+    sincronizar_chaves_carteira()
+
+def sincronizar_chaves_carteira():
+    for sigla in ["IBCI", "XDEQ", "PRAB"]:
+        c_val = st.session_state['carteira_etfs'][sigla]['cotas']
+        pc_val = st.session_state['carteira_etfs'][sigla]['p_compra']
+        pv_val = st.session_state['carteira_etfs'][sigla]['p_venda']
+
+        st.session_state[f"c_t1_{sigla}"] = c_val
+        st.session_state[f"p_compra_t1_{sigla}"] = pc_val
+        st.session_state[f"p_venda_t1_{sigla}"] = pv_val
+
+        st.session_state[f"c_t2_{sigla}"] = c_val
+        st.session_state[f"p_compra_t2_{sigla}"] = pc_val
+
+        st.session_state[f"c_t3_{sigla}"] = c_val
+        st.session_state[f"p_venda_t3_{sigla}"] = pv_val
+
+sincronizar_chaves_carteira()
+
+
+
 # =========================================================
 # FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO EXCEL & RESET DE DADOS (GITHUB PUBLIC SAFETY)
 # =========================================================
@@ -128,6 +170,8 @@ def limpar_dados_sessao():
     sincronizar_chaves_carteira()
 
 
+
+
 # Sidebar - Configurações Gerais
 st.sidebar.header("⚙ Configurações Gerais")
 periodo = st.sidebar.selectbox(
@@ -193,6 +237,8 @@ if st.sidebar.button("🗑️ Limpar Todos os Dados da Sessão", use_container_w
     st.rerun()
 
 
+
+
 # Credenciais do Gmail
 GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", ""))
 GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
@@ -227,46 +273,6 @@ def carregar_dados_etfs(tickers_list, period):
 
 tickers_etf = [meta["ticker"] for meta in ETF_MAP.values()]
 dados = carregar_dados_etfs(tickers_etf, periodo)
-
-# Mapeamento e Posição Canónica dos ETFs (Cotas, Preço Compra/Ask & Preço Venda/Bid)
-padroes_pos_global = {
-    "IBCI": {"cotas": 110, "p_compra": 230.19, "p_venda": 230.10, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50, "nome_full": "IBCI - Inflation Linked"},
-    "XDEQ": {"cotas": 208, "p_compra": 81.82, "p_venda": 81.75, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35, "nome_full": "XDEQ - World Quality"},
-    "PRAB": {"cotas": 654, "p_compra": 21.84, "p_venda": 21.82, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30, "nome_full": "PRAB - Amundi 0-1Y"}
-}
-
-if 'carteira_etfs' not in st.session_state:
-    st.session_state['carteira_etfs'] = padroes_pos_global.copy()
-    for sigla, info in st.session_state['carteira_etfs'].items():
-        tk = info["ticker"]
-        if not dados.empty and tk in dados.columns:
-            s_t = dados[tk].dropna()
-            if not s_t.empty:
-                p_live = float(s_t.iloc[-1])
-                info["p_compra"] = round(p_live, 2)
-                info["p_venda"] = round(p_live, 2)
-
-def update_carteira_state(sigla, field, widget_key):
-    st.session_state['carteira_etfs'][sigla][field] = st.session_state[widget_key]
-    sincronizar_chaves_carteira()
-
-def sincronizar_chaves_carteira():
-    for sigla in ["IBCI", "XDEQ", "PRAB"]:
-        c_val = st.session_state['carteira_etfs'][sigla]['cotas']
-        pc_val = st.session_state['carteira_etfs'][sigla]['p_compra']
-        pv_val = st.session_state['carteira_etfs'][sigla]['p_venda']
-
-        st.session_state[f"c_t1_{sigla}"] = c_val
-        st.session_state[f"p_compra_t1_{sigla}"] = pc_val
-        st.session_state[f"p_venda_t1_{sigla}"] = pv_val
-
-        st.session_state[f"c_t2_{sigla}"] = c_val
-        st.session_state[f"p_compra_t2_{sigla}"] = pc_val
-
-        st.session_state[f"c_t3_{sigla}"] = c_val
-        st.session_state[f"p_venda_t3_{sigla}"] = pv_val
-
-sincronizar_chaves_carteira()
 
 # Função para cálculo dos indicadores de ETFs
 def calcular_indicadores_etf(serie):
