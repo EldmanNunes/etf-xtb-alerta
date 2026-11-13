@@ -46,22 +46,13 @@ ETF_MAP = {
 
 
 # Mapeamento e Posição Canónica dos ETFs (Cotas, Preço Compra/Ask & Preço Venda/Bid)
+
+
 padroes_pos_global = {
     "IBCI": {"cotas": 110, "p_compra": 230.19, "p_venda": 230.10, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50, "nome_full": "IBCI - Inflation Linked"},
     "XDEQ": {"cotas": 208, "p_compra": 81.82, "p_venda": 81.75, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35, "nome_full": "XDEQ - World Quality"},
     "PRAB": {"cotas": 654, "p_compra": 21.84, "p_venda": 21.82, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30, "nome_full": "PRAB - Amundi 0-1Y"}
 }
-
-if 'carteira_etfs' not in st.session_state:
-    st.session_state['carteira_etfs'] = padroes_pos_global.copy()
-    for sigla, info in st.session_state['carteira_etfs'].items():
-        tk = info["ticker"]
-        if not dados.empty and tk in dados.columns:
-            s_t = dados[tk].dropna()
-            if not s_t.empty:
-                p_live = float(s_t.iloc[-1])
-                info["p_compra"] = round(p_live, 2)
-                info["p_venda"] = round(p_live, 2)
 
 def update_carteira_state(sigla, field, widget_key):
     st.session_state['carteira_etfs'][sigla][field] = st.session_state[widget_key]
@@ -83,8 +74,45 @@ def sincronizar_chaves_carteira():
         st.session_state[f"c_t3_{sigla}"] = c_val
         st.session_state[f"p_venda_t3_{sigla}"] = pv_val
 
-sincronizar_chaves_carteira()
 
+# Sidebar - Configurações Gerais
+st.sidebar.header("⚙ Configurações Gerais")
+periodo = st.sidebar.selectbox(
+    "Período Histórico (Gráficos ETFs):",
+    options=["1y", "2y", "5y", "10y", "max"],
+    index=2
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📈 Indicadores Técnicos (ETFs)")
+mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
+mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
+mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
+mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
+
+# Cache de Download de Dados de ETFs
+@st.cache_data(ttl=3600)
+def carregar_dados_etfs(tickers_list, period):
+    df = yf.download(tickers_list, period=period, auto_adjust=True, progress=False)
+    if isinstance(df.columns, pd.MultiIndex):
+        df = df['Close']
+    return df
+
+tickers_etf = [meta["ticker"] for meta in ETF_MAP.values()]
+dados = carregar_dados_etfs(tickers_etf, periodo)
+
+if 'carteira_etfs' not in st.session_state:
+    st.session_state['carteira_etfs'] = padroes_pos_global.copy()
+    for sigla, info in st.session_state['carteira_etfs'].items():
+        tk = info["ticker"]
+        if not dados.empty and tk in dados.columns:
+            s_t = dados[tk].dropna()
+            if not s_t.empty:
+                p_live = float(s_t.iloc[-1])
+                info["p_compra"] = round(p_live, 2)
+                info["p_venda"] = round(p_live, 2)
+
+sincronizar_chaves_carteira()
 
 
 # =========================================================
@@ -170,23 +198,6 @@ def limpar_dados_sessao():
     sincronizar_chaves_carteira()
 
 
-
-
-# Sidebar - Configurações Gerais
-st.sidebar.header("⚙ Configurações Gerais")
-periodo = st.sidebar.selectbox(
-    "Período Histórico (Gráficos ETFs):",
-    options=["1y", "2y", "5y", "10y", "max"],
-    index=2
-)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📈 Indicadores Técnicos (ETFs)")
-mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
-mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
-mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
-mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
-
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔒 Gestão de Dados & Privacidade (GitHub)")
 st.sidebar.caption("Os dados pessoais permanecem apenas na memória temporária da sessão (`session_state`) e não são gravados no repositório GitHub.")
@@ -237,8 +248,6 @@ if st.sidebar.button("🗑️ Limpar Todos os Dados da Sessão", use_container_w
     st.rerun()
 
 
-
-
 # Credenciais do Gmail
 GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", ""))
 GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
@@ -255,26 +264,15 @@ def obter_hicp_oficial_eurostat():
         endpoint_hicp = f"https://{domain_eurostat}/eurostat/api/dissemination/statistics/1.0/data/prc_hicp_manr?geo=EA&coicop=CP00&lastTimePeriod=1"
         response = requests.get(endpoint_hicp, timeout=5)
         if response.status_code == 200:
-            dados = response.json()
-            valores = list(dados.get('value', {}).values())
+            dados_hicp = response.json()
+            valores = list(dados_hicp.get('value', {}).values())
             if valores:
                 return round(float(valores[-1]), 1)
     except Exception:
         pass
     return 2.2 # Fallback de segurança
 
-# Cache de Download de Dados de ETFs
-@st.cache_data(ttl=3600)
-def carregar_dados_etfs(tickers_list, period):
-    df = yf.download(tickers_list, period=period, auto_adjust=True, progress=False)
-    if isinstance(df.columns, pd.MultiIndex):
-        df = df['Close']
-    return df
 
-tickers_etf = [meta["ticker"] for meta in ETF_MAP.values()]
-dados = carregar_dados_etfs(tickers_etf, periodo)
-
-# Função para cálculo dos indicadores de ETFs
 def calcular_indicadores_etf(serie):
     df = pd.DataFrame({'Preco': serie})
     df['MA50'] = df['Preco'].rolling(50).mean()
