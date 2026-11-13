@@ -93,15 +93,20 @@ def sincronizar_chaves_carteira():
         st.session_state['carteira_etfs'][sigla]['p_compra'] = pc_val
         st.session_state['carteira_etfs'][sigla]['p_venda'] = pv_val
 
-        st.session_state[f"c_t1_{sigla}"] = c_val
-        st.session_state[f"p_compra_t1_{sigla}"] = pc_val
-        st.session_state[f"p_venda_t1_{sigla}"] = pv_val
-
-        st.session_state[f"c_t2_{sigla}"] = c_val
-        st.session_state[f"p_compra_t2_{sigla}"] = pc_val
-
-        st.session_state[f"c_t3_{sigla}"] = c_val
-        st.session_state[f"p_venda_t3_{sigla}"] = pv_val
+        keys_to_set = {
+            f"c_t1_{sigla}": c_val,
+            f"p_compra_t1_{sigla}": pc_val,
+            f"p_venda_t1_{sigla}": pv_val,
+            f"c_t2_{sigla}": c_val,
+            f"p_compra_t2_{sigla}": pc_val,
+            f"c_t3_{sigla}": c_val,
+            f"p_venda_t3_{sigla}": pv_val,
+        }
+        for k, v in keys_to_set.items():
+            try:
+                st.session_state[k] = v
+            except Exception:
+                pass
 
 
 # Sidebar - Configurações Gerais
@@ -141,7 +146,18 @@ if 'carteira_etfs' not in st.session_state:
                 info["p_compra"] = round(p_live, 2)
                 info["p_venda"] = round(p_live, 2)
 
-sincronizar_chaves_carteira()
+def obter_df_lotes_demo():
+    return pd.DataFrame([
+        {"ID Posição": "2280842619", "Data Compra": "09/01/2026", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 2, "Preço Abertura (€)": 231.30, "Comissão (€)": 0.00},
+        {"ID Posição": "1002849120", "Data Compra": "15/12/2025", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 108, "Preço Abertura (€)": 230.17, "Comissão (€)": 0.00},
+        {"ID Posição": "1002849121", "Data Compra": "10/01/2026", "ETF": "XDEQ - World Quality", "Sigla": "XDEQ", "Volume (Cotas)": 208, "Preço Abertura (€)": 81.82, "Comissão (€)": 0.00},
+        {"ID Posição": "1002849122", "Data Compra": "05/01/2026", "ETF": "PRAB - Amundi 0-1Y", "Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Abertura (€)": 21.84, "Comissão (€)": 0.00}
+    ])
+
+if 'historico_compras' not in st.session_state:
+    st.session_state['historico_compras'] = sanitizar_df_historico(obter_df_lotes_demo())
+
+sincronizar_carteira_com_historico()
 
 
 # =========================================================
@@ -1673,46 +1689,9 @@ with tab4:
                 st.rerun()
 
 
-    # 1. Inicialização da Estrutura de Lotes no Session State
+    # 1. Garantir Inicialização da Estrutura de Lotes no Session State
     if 'historico_compras' not in st.session_state:
-        st.session_state['historico_compras'] = pd.DataFrame([
-            {
-                "ID Posição": "2280842619",
-                "Data Compra": "09/01/2026",
-                "ETF": "IBCI - Inflation Linked",
-                "Sigla": "IBCI",
-                "Volume (Cotas)": 2,
-                "Preço Abertura (€)": 231.30,
-                "Comissão (€)": 0.00
-            },
-            {
-                "ID Posição": "1002849120",
-                "Data Compra": "15/12/2025",
-                "ETF": "IBCI - Inflation Linked",
-                "Sigla": "IBCI",
-                "Volume (Cotas)": 108,
-                "Preço Abertura (€)": 230.17,
-                "Comissão (€)": 0.00
-            },
-            {
-                "ID Posição": "1002849121",
-                "Data Compra": "10/01/2026",
-                "ETF": "XDEQ - World Quality",
-                "Sigla": "XDEQ",
-                "Volume (Cotas)": 208,
-                "Preço Abertura (€)": 81.82,
-                "Comissão (€)": 0.00
-            },
-            {
-                "ID Posição": "1002849122",
-                "Data Compra": "05/01/2026",
-                "ETF": "PRAB - Amundi 0-1Y",
-                "Sigla": "PRAB",
-                "Volume (Cotas)": 654,
-                "Preço Abertura (€)": 21.84,
-                "Comissão (€)": 0.00
-            }
-        ])
+        st.session_state['historico_compras'] = sanitizar_df_historico(obter_df_lotes_demo())
 
     # 2. Definição / Sincronização dos Preços de Mercado Atuais
     st.markdown("### ⚙ Configuração dos Preços de Mercado Atuais")
@@ -1798,8 +1777,11 @@ with tab4:
         key="editor_lotes_compras"
     )
 
-    st.session_state['historico_compras'] = df_editado
-    sincronizar_carteira_com_historico()
+    df_editado_san = sanitizar_df_historico(df_editado)
+    if not df_editado_san.equals(st.session_state['historico_compras']):
+        st.session_state['historico_compras'] = df_editado_san
+        sincronizar_carteira_com_historico()
+        st.rerun()
 
     # 4. Processamento dos Cálculos de Rendimento e Performance
     if not df_editado.empty:
