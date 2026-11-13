@@ -1,4 +1,5 @@
 import os
+import io
 import requests
 import smtplib
 from email.mime.text import MIMEText
@@ -43,6 +44,90 @@ ETF_MAP = {
     }
 }
 
+
+# =========================================================
+# FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO EXCEL & RESET DE DADOS (GITHUB PUBLIC SAFETY)
+# =========================================================
+def gerar_modelo_excel():
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_lotes_demo = pd.DataFrame([
+            {"ID Posição": "2280842619", "Data Compra": "09/01/2026", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 2, "Preço Abertura (€)": 231.30, "Comissão (€)": 0.00},
+            {"ID Posição": "1002849120", "Data Compra": "15/12/2025", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 108, "Preço Abertura (€)": 230.17, "Comissão (€)": 0.00},
+            {"ID Posição": "1002849121", "Data Compra": "10/01/2026", "ETF": "XDEQ - World Quality", "Sigla": "XDEQ", "Volume (Cotas)": 208, "Preço Abertura (€)": 81.82, "Comissão (€)": 0.00},
+            {"ID Posição": "1002849122", "Data Compra": "05/01/2026", "ETF": "PRAB - Amundi 0-1Y", "Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Abertura (€)": 21.84, "Comissão (€)": 0.00}
+        ])
+        df_lotes_demo.to_excel(writer, sheet_name='Historico_Lotes', index=False)
+
+        df_carteira_demo = pd.DataFrame([
+            {"Sigla": "IBCI", "Volume (Cotas)": 110, "Preço Compra (€)": 230.19, "Preço Venda (€)": 230.10},
+            {"Sigla": "XDEQ", "Volume (Cotas)": 208, "Preço Compra (€)": 81.82, "Preço Venda (€)": 81.75},
+            {"Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Compra (€)": 21.84, "Preço Venda (€)": 21.82}
+        ])
+        df_carteira_demo.to_excel(writer, sheet_name='Carteira_Geral', index=False)
+    return output.getvalue()
+
+def exportar_carteira_excel_full(df_lotes, carteira_dict):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        if df_lotes is not None and not df_lotes.empty:
+            df_lotes.to_excel(writer, sheet_name='Historico_Lotes', index=False)
+        else:
+            pd.DataFrame(columns=["ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]).to_excel(writer, sheet_name='Historico_Lotes', index=False)
+
+        rows_c = []
+        if carteira_dict:
+            for sigla, d in carteira_dict.items():
+                rows_c.append({
+                    "Sigla": sigla,
+                    "Volume (Cotas)": d.get('cotas', 0),
+                    "Preço Compra (€)": d.get('p_compra', 0.0),
+                    "Preço Venda (€)": d.get('p_venda', 0.0)
+                })
+        pd.DataFrame(rows_c).to_excel(writer, sheet_name='Carteira_Geral', index=False)
+    return output.getvalue()
+
+def processar_importacao_excel(file_bytes):
+    try:
+        xls = pd.ExcelFile(file_bytes)
+        # Importar Lotes
+        if 'Historico_Lotes' in xls.sheet_names:
+            df_lotes = pd.read_excel(xls, sheet_name='Historico_Lotes')
+            cols_req = ["ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]
+            for c in cols_req:
+                if c not in df_lotes.columns:
+                    df_lotes[c] = "" if "Data" in c or "ID" in c or "ETF" in c or "Sigla" in c else 0.0
+            st.session_state['historico_compras'] = df_lotes[cols_req]
+        
+        # Importar Carteira
+        if 'Carteira_Geral' in xls.sheet_names:
+            df_cart = pd.read_excel(xls, sheet_name='Carteira_Geral')
+            for _, r in df_cart.iterrows():
+                sigla = str(r.get('Sigla', '')).strip().upper()
+                if 'carteira_etfs' in st.session_state and sigla in st.session_state['carteira_etfs']:
+                    vol = float(r.get('Volume (Cotas)', r.get('Cotas', st.session_state['carteira_etfs'][sigla]['cotas'])))
+                    pc = float(r.get('Preço Compra (€)', r.get('Preço Compra', st.session_state['carteira_etfs'][sigla]['p_compra'])))
+                    pv = float(r.get('Preço Venda (€)', r.get('Preço Venda', st.session_state['carteira_etfs'][sigla]['p_venda'])))
+                    st.session_state['carteira_etfs'][sigla]['cotas'] = vol
+                    st.session_state['carteira_etfs'][sigla]['p_compra'] = pc
+                    st.session_state['carteira_etfs'][sigla]['p_venda'] = pv
+            sincronizar_chaves_carteira()
+        return True, "Planilha Excel importada com sucesso! Todas as abas foram atualizadas com os novos dados."
+    except Exception as e:
+        return False, f"Erro ao importar planilha: {str(e)}"
+
+def limpar_dados_sessao():
+    st.session_state['historico_compras'] = pd.DataFrame(columns=[
+        "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
+    ])
+    for sigla in ["IBCI", "XDEQ", "PRAB"]:
+        if 'carteira_etfs' in st.session_state and sigla in st.session_state['carteira_etfs']:
+            st.session_state['carteira_etfs'][sigla]['cotas'] = 0
+            st.session_state['carteira_etfs'][sigla]['p_compra'] = 0.0
+            st.session_state['carteira_etfs'][sigla]['p_venda'] = 0.0
+    sincronizar_chaves_carteira()
+
+
 # Sidebar - Configurações Gerais
 st.sidebar.header("⚙ Configurações Gerais")
 periodo = st.sidebar.selectbox(
@@ -57,6 +142,56 @@ mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
 mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
 mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
 mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔒 Gestão de Dados & Privacidade (GitHub)")
+st.sidebar.caption("Os dados pessoais permanecem apenas na memória temporária da sessão (`session_state`) e não são gravados no repositório GitHub.")
+
+with st.sidebar.expander("📂 Importar / Exportar Planilha Excel (.xlsx)", expanded=False):
+    st.markdown("**1. Importar Planilha de Aportes & Carteira**")
+    file_uploaded = st.file_uploader("Carregar planilha (.xlsx):", type=["xlsx"], key="excel_uploader_sidebar")
+    if file_uploaded is not None:
+        if st.button("📥 Processar Importação Excel", use_container_width=True, key="btn_import_sidebar"):
+            ok, msg_imp = processar_importacao_excel(file_uploaded)
+            if ok:
+                st.success(msg_imp)
+                st.rerun()
+            else:
+                st.error(msg_imp)
+
+    st.markdown("---")
+    st.markdown("**2. Exportar Dados Atuais para Excel**")
+    excel_bytes_export = exportar_carteira_excel_full(
+        st.session_state.get('historico_compras'),
+        st.session_state.get('carteira_etfs', {})
+    )
+    st.download_button(
+        label="📤 Exportar Carteira em Excel (.xlsx)",
+        data=excel_bytes_export,
+        file_name=f"Carteira_ETFs_XTB_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        key="btn_export_sidebar"
+    )
+
+    st.markdown("---")
+    st.markdown("**3. Modelo / Template em Branco**")
+    excel_template_bytes = gerar_modelo_excel()
+    st.download_button(
+        label="📄 Baixar Modelo de Planilha (.xlsx)",
+        data=excel_template_bytes,
+        file_name="Modelo_Importacao_ETFs_XTB.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        key="btn_template_sidebar"
+    )
+
+st.sidebar.markdown("**Limpeza de Dados Pessoais (Reset de Segurança):**")
+if st.sidebar.button("🗑️ Limpar Todos os Dados da Sessão", use_container_width=True, key="btn_clear_data_sidebar"):
+    limpar_dados_sessao()
+    st.sidebar.success("Dados da sessão eliminados. Nenhuma informação pessoal está em memória.")
+    st.rerun()
+
 
 # Credenciais do Gmail
 GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", ""))
@@ -1372,6 +1507,55 @@ with tab3:
 with tab4:
     st.subheader("📊 Histórico de Aportes, Rendimentos & Performance da Carteira")
     st.caption("Acompanhamento de P&L por Lotes de Compra, Preço Médio Ponderado e Distribuição de Capital.")
+
+    # ---------------------------------------------------------
+    # 0. Painel Integrado de Importação/Exportação & Privacidade
+    # ---------------------------------------------------------
+    with st.expander("📥 Importar/Exportar Planilha Excel (.xlsx) & Privacidade GitHub", expanded=False):
+        c_exp1, c_exp2, c_exp3, c_exp4 = st.columns(4)
+        with c_exp1:
+            st.markdown("**1. Importar Planilha**")
+            upl_t4 = st.file_uploader("Selecione arquivo .xlsx:", type=["xlsx"], key="upl_tab4_excel")
+            if upl_t4 is not None:
+                if st.button("📥 Importar Dados", use_container_width=True, key="btn_imp_tab4"):
+                    ok_t4, msg_t4 = processar_importacao_excel(upl_t4)
+                    if ok_t4:
+                        st.success(msg_t4)
+                        st.rerun()
+                    else:
+                        st.error(msg_t4)
+        with c_exp2:
+            st.markdown("**2. Exportar Carteira**")
+            ex_bytes_t4 = exportar_carteira_excel_full(
+                st.session_state.get('historico_compras'),
+                st.session_state.get('carteira_etfs', {})
+            )
+            st.download_button(
+                label="📤 Exportar Planilha (.xlsx)",
+                data=ex_bytes_t4,
+                file_name=f"Carteira_ETFs_XTB_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="btn_exp_tab4"
+            )
+        with c_exp3:
+            st.markdown("**3. Modelo para Preenchimento**")
+            tmpl_bytes_t4 = gerar_modelo_excel()
+            st.download_button(
+                label="📄 Baixar Modelo (.xlsx)",
+                data=tmpl_bytes_t4,
+                file_name="Modelo_Importacao_ETFs_XTB.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="btn_tmpl_tab4"
+            )
+        with c_exp4:
+            st.markdown("**4. Limpeza de Privacidade**")
+            if st.button("🗑️ Limpar Todos os Dados", use_container_width=True, key="btn_clr_tab4"):
+                limpar_dados_sessao()
+                st.success("Sessão zerada!")
+                st.rerun()
+
 
     # 1. Inicialização da Estrutura de Lotes no Session State
     if 'historico_compras' not in st.session_state:
