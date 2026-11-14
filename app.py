@@ -124,6 +124,68 @@ mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
 mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
 mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Alocação Tática Dinâmica & Metas (TAA)")
+st.sidebar.caption("Defina percentuais flexíveis ou escolha um perfil tático pré-definido.")
+
+m_ibci_curr = float(st.session_state.get('carteira_etfs', {}).get('IBCI', {}).get('alvo', 0.45) * 100)
+m_xdeq_curr = float(st.session_state.get('carteira_etfs', {}).get('XDEQ', {}).get('alvo', 0.30) * 100)
+m_prab_curr = float(st.session_state.get('carteira_etfs', {}).get('PRAB', {}).get('alvo', 0.25) * 100)
+
+col_taa1, col_taa2, col_taa3 = st.sidebar.columns(3)
+with col_taa1:
+    in_m_ibci = st.number_input("IBCI (%)", min_value=0.0, max_value=100.0, value=m_ibci_curr, step=1.0, key="in_taa_ibci")
+with col_taa2:
+    in_m_xdeq = st.number_input("XDEQ (%)", min_value=0.0, max_value=100.0, value=m_xdeq_curr, step=1.0, key="in_taa_xdeq")
+with col_taa3:
+    in_m_prab = st.number_input("PRAB (%)", min_value=0.0, max_value=100.0, value=m_prab_curr, step=1.0, key="in_taa_prab")
+
+soma_m = in_m_ibci + in_m_xdeq + in_m_prab
+if abs(soma_m - 100.0) < 0.01:
+    st.sidebar.success("🟢 Soma das Metas: 100%")
+    if 'carteira_etfs' in st.session_state:
+        st.session_state['carteira_etfs']['IBCI']['alvo'] = in_m_ibci / 100.0
+        st.session_state['carteira_etfs']['IBCI']['teto'] = (in_m_ibci + 5.0) / 100.0
+        st.session_state['carteira_etfs']['XDEQ']['alvo'] = in_m_xdeq / 100.0
+        st.session_state['carteira_etfs']['XDEQ']['teto'] = (in_m_xdeq + 5.0) / 100.0
+        st.session_state['carteira_etfs']['PRAB']['alvo'] = in_m_prab / 100.0
+        st.session_state['carteira_etfs']['PRAB']['teto'] = (in_m_prab + 5.0) / 100.0
+else:
+    st.sidebar.warning(f"⚠️ Total das metas: {soma_m:.1f}% (deve ser 100%)")
+
+st.sidebar.markdown("**⚡ Perfis Táticos Pré-Definidos:**")
+col_p1, col_p2, col_p3 = st.sidebar.columns(3)
+if col_p1.button("🛡️ Defensivo", help="50% IBCI / 25% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_def"):
+    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.50
+    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.55
+    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.25
+    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.30
+    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
+    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
+    sincronizar_chaves_carteira()
+    st.rerun()
+
+if col_p2.button("⚖️ Equilibrado", help="45% IBCI / 30% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_eq"):
+    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.45
+    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.50
+    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.30
+    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.35
+    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
+    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
+    sincronizar_chaves_carteira()
+    st.rerun()
+
+if col_p3.button("🚀 Expansão", help="35% IBCI / 40% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_exp"):
+    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.35
+    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.40
+    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.40
+    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.45
+    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
+    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
+    sincronizar_chaves_carteira()
+    st.rerun()
+
+
 # Cache de Download de Dados de ETFs
 @st.cache_data(ttl=3600)
 def carregar_dados_etfs(tickers_list, period):
@@ -145,6 +207,46 @@ if 'carteira_etfs' not in st.session_state:
                 p_live = float(s_t.iloc[-1])
                 info["p_compra"] = round(p_live, 2)
                 info["p_venda"] = round(p_live, 2)
+
+
+def obter_rentabilidade_global_historico():
+    """Calcula o resumo consolidado de custos, valor de mercado e P&L líquido
+    a partir de st.session_state['historico_compras']."""
+    custo_total = 0.0
+    valor_mercado_total = 0.0
+    if 'historico_compras' in st.session_state and isinstance(st.session_state['historico_compras'], pd.DataFrame):
+        df_h = st.session_state['historico_compras']
+        if not df_h.empty and 'Sigla' in df_h.columns:
+            for _, r in df_h.iterrows():
+                sigla = str(r.get('Sigla', '')).strip().upper()
+                vol = pd.to_numeric(r.get('Volume (Cotas)', 0), errors='coerce')
+                vol_num = float(vol) if pd.notnull(vol) else 0.0
+                p_abert = pd.to_numeric(r.get('Preço Abertura (€)', 0), errors='coerce')
+                p_abert_num = float(p_abert) if pd.notnull(p_abert) else 0.0
+                comiss = pd.to_numeric(r.get('Comissão (€)', 0), errors='coerce')
+                comiss_num = float(comiss) if pd.notnull(comiss) else 0.0
+
+                p_mkt = 0.0
+                if 'carteira_etfs' in st.session_state and sigla in st.session_state['carteira_etfs']:
+                    p_mkt = float(st.session_state['carteira_etfs'][sigla].get('p_venda', p_abert_num))
+                else:
+                    p_mkt = p_abert_num
+
+                custo_lote = (vol_num * p_abert_num) + comiss_num
+                val_mkt_lote = vol_num * p_mkt
+
+                custo_total += custo_lote
+                valor_mercado_total += val_mkt_lote
+
+    lucro_neto = valor_mercado_total - custo_total
+    retorno_pct = (lucro_neto / custo_total * 100.0) if custo_total > 0 else 0.0
+    return {
+        "custo_total": custo_total,
+        "valor_mercado_total": valor_mercado_total,
+        "lucro_neto": lucro_neto,
+        "retorno_pct": retorno_pct
+    }
+
 
 # Sanitização Rigorosa do Histórico de Lotes para st.data_editor
 def sanitizar_df_historico(df):
@@ -684,7 +786,7 @@ def gerar_pdf_performance(df_lotes_records, resumo_etfs_records, custo_total, va
 
     return bytes(pdf.output())
 
-def gerar_pdf_saque(patrimonio_inicial, hicp, saque_teorico, saque_efetivo, ativo_venda, cotas_vendidas, tabela_records, data_str, justificativa_saque=None, protecao_info=None):
+def gerar_pdf_saque(patrimonio_inicial, hicp, saque_teorico, saque_efetivo, ativo_venda, cotas_vendidas, tabela_records, data_str, justificativa_saque=None, protecao_info=None, fichas_ordens_xtb=None):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font('Helvetica', 'B', 16)
@@ -717,6 +819,14 @@ def gerar_pdf_saque(patrimonio_inicial, hicp, saque_teorico, saque_efetivo, ativ
         pdf.cell(pdf.epw, 8, sanitizar_pdf('3. Trava de Proteção de Fundo & Preservação Patrimonial'), new_x='LMARGIN', new_y='NEXT')
         pdf.set_font('Helvetica', '', 10)
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- {protecao_info}"), new_x='LMARGIN', new_y='NEXT')
+
+    if fichas_ordens_xtb:
+        pdf.ln(4)
+        pdf.set_font('Helvetica', 'B', 12)
+        pdf.cell(pdf.epw, 8, sanitizar_pdf('4. Guia de Execução de Liquidação por ID na XTB'), new_x='LMARGIN', new_y='NEXT')
+        pdf.set_font('Helvetica', '', 10)
+        for item in fichas_ordens_xtb:
+            pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- ID #{item.get('ID Posição XTB', '')} | {item.get('ETF', '')}: {item.get('Ação na XTB', '')} | Preço Compra: {item.get('Preço Compra (€)', '')} | P&L: {item.get('P&L Est. (€)', '')}"), new_x='LMARGIN', new_y='NEXT')
 
     return bytes(pdf.output())
 
@@ -1002,7 +1112,8 @@ with tab1:
                         explicacao = f"Tendência primária desfavorável (MA50 < MA200 por {fmt_br(diff_ma_pct, 1, signed=True, suffix='%')}, RSI: {fmt_br(rsi, 1)}). Suspender novos aportes. Liquidação recomendada apenas para reequilíbrio estrito."
 
                 peso_atual_pct = (valores_atuais_port.get(nome, 0.0) / total_port_t1) * 100
-                peso_alvo_pct = ETF_MAP[nome]["target_pct"] * 100
+                sigla_tmp = nome.split(" - ")[0].strip()
+                peso_alvo_pct = st.session_state['carteira_etfs'].get(sigla_tmp, {}).get("alvo", ETF_MAP[nome]["target_pct"]) * 100
 
                 if status_acao.startswith("🟢 "):
                     if peso_atual_pct >= peso_alvo_pct + 1.0:
@@ -1145,7 +1256,10 @@ with tab2:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
     st.info(f"ℹ **Metadados de Auditoria & Rastreabilidade (v3.4 - Rebalanceamento Seletivo & Trava de Risco):** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Trava de Risco (+5.0 pp) | Filtro de Sinais Técnicos")
     st.subheader("⚖ Calculadora de Rebalanceamento XTB por Novo Aporte (v3.4)")
-    st.caption("Alocação Alvo Estratégica: IBCI (45%) | XDEQ (30%) | PRAB (25%) | Trava de Risco (+5.0 pp sobre o alvo)")
+    m_ibci_t2 = int(st.session_state['carteira_etfs']['IBCI']['alvo'] * 100)
+    m_xdeq_t2 = int(st.session_state['carteira_etfs']['XDEQ']['alvo'] * 100)
+    m_prab_t2 = int(st.session_state['carteira_etfs']['PRAB']['alvo'] * 100)
+    st.caption(f"Alocação Alvo Estratégica Atual: IBCI ({m_ibci_t2}%) | XDEQ ({m_xdeq_t2}%) | PRAB ({m_prab_t2}%) | Trava de Risco (+5.0 pp sobre o alvo)")
 
     capital = st.number_input("Capital disponível para investir (€)", min_value=0.0, value=4000.0, step=100.0, key="cap_rebalancer")
 
@@ -1157,9 +1271,9 @@ with tab2:
     elegivel_input = {}
 
     padroes = {
-        "IBCI": {"cotas": 110, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50},
-        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35},
-        "PRAB": {"cotas": 654, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30}
+        "IBCI": {"cotas": 110, "ticker": "IBCI.DE", "alvo": st.session_state['carteira_etfs']['IBCI']['alvo'], "teto": st.session_state['carteira_etfs']['IBCI']['teto']},
+        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "alvo": st.session_state['carteira_etfs']['XDEQ']['alvo'], "teto": st.session_state['carteira_etfs']['XDEQ']['teto']},
+        "PRAB": {"cotas": 654, "ticker": "PRAB.DE", "alvo": st.session_state['carteira_etfs']['PRAB']['alvo'], "teto": st.session_state['carteira_etfs']['PRAB']['teto']}
     }
 
     sinais_auto = {}
@@ -1202,8 +1316,8 @@ with tab2:
             elegivel_input[sigla] = elegivel
 
     def processar_rebalanceamento():
-        targets = {"IBCI": 0.45, "XDEQ": 0.30, "PRAB": 0.25}
-        tetos = {"IBCI": 0.50, "XDEQ": 0.35, "PRAB": 0.30}
+        targets = {a: st.session_state['carteira_etfs'][a]['alvo'] for a in ["IBCI", "XDEQ", "PRAB"]}
+        tetos = {a: st.session_state['carteira_etfs'][a]['teto'] for a in ["IBCI", "XDEQ", "PRAB"]}
 
         val_atual = {a: cotas_input[a] * precos_input[a] for a in cotas_input}
         patrimonio_atual = sum(val_atual.values())
@@ -1387,9 +1501,9 @@ with tab2:
 # =========================================================
 with tab3:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.info(f"ℹ **Metadados de Auditoria & Rastreabilidade (v3.5 - Saque Inteligente & Proteção de Fundo):** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.5 (Fase 3 Completa - Fichas Técnicas & Proteção de Fundo)")
+    st.info(f"ℹ **Metadados de Auditoria & Rastreabilidade (v3.6 - Alocação Tática Dinâmica (TAA) & Liquidação de Lotes XTB):** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.5 (Fase 3 Completa - Fichas Técnicas & Proteção de Fundo)")
     st.subheader("💸 Gestão Anual de Saque & Reequilíbrio UCITS")
-    st.caption("Estratégia Defensiva v3.5 | Proteção de Fundo contra Sequence of Returns Risk")
+    st.caption("Estratégia Defensiva & Tática v3.6 | Proteção de Fundo contra Sequence of Returns Risk")
 
     col_s1, col_s2, col_s3 = st.columns(3)
 
@@ -1414,9 +1528,9 @@ with tab3:
     s_cols = st.columns(3)
 
     padroes_saque = {
-        "IBCI": {"cotas": 110, "ticker": "IBCI.DE", "alvo": 0.45},
-        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "alvo": 0.30},
-        "PRAB": {"cotas": 562, "ticker": "PRAB.DE", "alvo": 0.25}
+        "IBCI": {"cotas": 110, "ticker": "IBCI.DE", "alvo": st.session_state['carteira_etfs']['IBCI']['alvo']},
+        "XDEQ": {"cotas": 208, "ticker": "XDEQ.DE", "alvo": st.session_state['carteira_etfs']['XDEQ']['alvo']},
+        "PRAB": {"cotas": 562, "ticker": "PRAB.DE", "alvo": st.session_state['carteira_etfs']['PRAB']['alvo']}
     }
 
     sinais_saque_auto = {}
@@ -1469,7 +1583,18 @@ with tab3:
 
         pct_saque_ajustado = (taxa_saque_base / 100.0) * (1.0 + (hicp / 100.0))
         saque_teorico = patrimonio_inicial * pct_saque_ajustado
-        targets = {"IBCI": 0.45, "XDEQ": 0.30, "PRAB": 0.25}
+        
+        info_pnl = obter_rentabilidade_global_historico()
+        lucro_neto_real = info_pnl['lucro_neto']
+        saque_conservador = max(0.0, min(saque_teorico, lucro_neto_real))
+        
+        modo_sel = st.session_state.get('modo_saque_sel', '')
+        if 'Conservador' in modo_sel:
+            saque_alvo_executar = saque_conservador
+        else:
+            saque_alvo_executar = saque_teorico
+
+        targets = {a: st.session_state['carteira_etfs'][a]['alvo'] for a in ["IBCI", "XDEQ", "PRAB"]}
 
         ativo_venda = "PRAB"
         justificativa_saque = "Venda prioritária de PRAB seguindo a hierarquia defensiva (liquidez soberana de curto prazo)."
@@ -1495,9 +1620,9 @@ with tab3:
         preco_venda = precos_saque_in[ativo_venda]
         cotas_disponiveis = cotas_saque_in[ativo_venda]
 
-        cotas_venda = int(saque_teorico // preco_venda)
-        if cotas_venda * preco_venda < saque_teorico and cotas_venda < cotas_disponiveis:
-            if (saque_teorico - (cotas_venda * preco_venda)) > (preco_venda / 2.0):
+        cotas_venda = int(saque_alvo_executar // preco_venda)
+        if cotas_venda * preco_venda < saque_alvo_executar and cotas_venda < cotas_disponiveis:
+            if (saque_alvo_executar - (cotas_venda * preco_venda)) > (preco_venda / 2.0):
                 cotas_venda += 1
 
         cotas_venda = min(cotas_venda, cotas_disponiveis)
@@ -1533,9 +1658,50 @@ with tab3:
         if protegidos_list:
             protecao_info = f"Ativos protegidos contra venda em fundo: {', '.join(protegidos_list)}. A venda foi bloqueada nestes ativos para mitigar o risco de sequência de retornos (Sequence of Returns Risk)."
 
+        fichas_ordens_xtb = []
+        if 'historico_compras' in st.session_state and isinstance(st.session_state['historico_compras'], pd.DataFrame):
+            df_h_xtb = st.session_state['historico_compras']
+            if not df_h_xtb.empty and 'Sigla' in df_h_xtb.columns:
+                df_sub = df_h_xtb[df_h_xtb['Sigla'] == ativo_venda].copy()
+                if not df_sub.empty:
+                    df_sub['Vol_Num'] = pd.to_numeric(df_sub['Volume (Cotas)'], errors='coerce').fillna(0).astype(int)
+                    df_sub = df_sub[df_sub['Vol_Num'] > 0]
+                    cotas_rem = cotas_venda
+                    for _, r_lote in df_sub.iterrows():
+                        if cotas_rem <= 0:
+                            break
+                        id_pos = str(r_lote.get('ID Posição', '')).strip()
+                        dt_c = str(r_lote.get('Data Compra', '')).strip()
+                        vol_lote = int(r_lote.get('Vol_Num', 0))
+                        p_abert = float(pd.to_numeric(r_lote.get('Preço Abertura (€)', 0), errors='coerce') or 0.0)
+                        
+                        cotas_fechar = min(vol_lote, cotas_rem)
+                        pnl_est = (preco_venda - p_abert) * cotas_fechar
+                        
+                        if cotas_fechar == vol_lote:
+                            st_fecho = f"🔴 Fechar TOTAL ({cotas_fechar} cotas)"
+                        else:
+                            st_fecho = f"🟡 Fechar PARCIAL ({cotas_fechar} de {vol_lote} cotas)"
+                        
+                        fichas_ordens_xtb.append({
+                            "ID Posição XTB": id_pos,
+                            "Data Compra": dt_c,
+                            "ETF": str(r_lote.get('ETF', ativo_venda)),
+                            "Sigla": ativo_venda,
+                            "Cotas Lote": vol_lote,
+                            "Cotas a Liquidar": cotas_fechar,
+                            "Preço Compra (€)": f"€ {fmt_br(p_abert, 2)}",
+                            "Preço Venda (€)": f"€ {fmt_br(preco_venda, 2)}",
+                            "P&L Est. (€)": f"€ {fmt_br(pnl_est, 2, signed=True)}",
+                            "Ação Recomendada na XTB": st_fecho
+                        })
+                        cotas_rem -= cotas_fechar
+
         st.session_state["saque_data"] = {
             "patrimonio_inicial": patrimonio_inicial,
             "saque_teorico": saque_teorico,
+            "saque_conservador": saque_conservador,
+            "lucro_neto_real": lucro_neto_real,
             "saque_efetivo": saque_efetivo,
             "ativo_venda": ativo_venda,
             "cotas_venda": cotas_venda,
@@ -1546,7 +1712,8 @@ with tab3:
             "val_atual": val_atual,
             "val_pos": val_pos,
             "justificativa_saque": justificativa_saque,
-            "protecao_info": protecao_info
+            "protecao_info": protecao_info,
+            "fichas_ordens_xtb": fichas_ordens_xtb
         }
 
     if st.button("🚀 Executar Processo Anual de Saque & Reequilíbrio", type="primary", use_container_width=True, key="btn_exec_saque"):
@@ -1555,10 +1722,35 @@ with tab3:
     if "saque_data" in st.session_state:
         sq = st.session_state["saque_data"]
         st.markdown("---")
-        st.subheader("2. Saque Anual Recomendado")
+        st.subheader("2. Cenários de Saque & Preservação do Capital Real")
+        
+        info_pnl_show = obter_rentabilidade_global_historico()
+        lucro_neto_disp = info_pnl_show['lucro_neto']
+        saque_conserv_disp = max(0.0, min(sq['saque_teorico'], lucro_neto_disp))
+
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric("Saque Teórico HICP", f"€ {fmt_br(sq['saque_teorico'], 2)}")
+        with m2:
+            st.metric("Lucro Neto Acumulado Real", f"€ {fmt_br(lucro_neto_disp, 2)}", f"{fmt_br(info_pnl_show['retorno_pct'], 2, signed=True, suffix='%')}")
+        with m3:
+            st.metric("Saque Real Conservador (Teto Lucro)", f"€ {fmt_br(saque_conserv_disp, 2)}")
+
+        if sq['saque_teorico'] > lucro_neto_disp and info_pnl_show['custo_total'] > 0:
+            st.error(f"🚨 **Alerta de Erosão do Capital Principal:** O saque pretendido de **€ {fmt_br(sq['saque_teorico'], 2)}** excede o lucro líquido acumulado da carteira (**€ {fmt_br(lucro_neto_disp, 2)}**). Sacar este valor consumirá **€ {fmt_br(sq['saque_teorico'] - max(0.0, lucro_neto_disp), 2)}** do capital principal investido original.")
+
+        st.radio(
+            "🎯 Modalidade de Saque Selecionada:",
+            options=[
+                f"Saque Teórico HICP (€ {fmt_br(sq['saque_teorico'], 2)})",
+                f"Saque Real Conservador / Preservativo (€ {fmt_br(saque_conserv_disp, 2)})"
+            ],
+            index=0 if sq['saque_teorico'] <= max(0.0, lucro_neto_disp) else 1,
+            key="modo_saque_sel"
+        )
+
         s1, s2 = st.columns(2)
         with s1:
-            st.metric("Saque Teórico (3,5% + HICP)", f"€ {fmt_br(sq['saque_teorico'], 2)}")
             st.metric("Valor Efetivamente Sacado", f"€ {fmt_br(sq['saque_efetivo'], 2)}")
             st.info(f"**Ordem de Venda Prioritária:** Vender **{sq['cotas_venda']} cotas** de **{sq['ativo_venda']}**")
 
@@ -1570,8 +1762,14 @@ with tab3:
                 st.markdown("#### **🛡 Trava de Proteção de Fundo (Sequence of Returns Risk):**")
                 st.warning(sq["protecao_info"])
 
+        if "fichas_ordens_xtb" in sq and sq["fichas_ordens_xtb"]:
+            st.markdown("---")
+            st.subheader("📋 3. Guia de Liquidação por ID de Posição na XTB (xStation 5)")
+            st.caption("Para executar o saque recomendado, aceda ao separador de Posições Abertas na XTB e encerre total ou parcialmente as ordens indicadas abaixo:")
+            st.dataframe(pd.DataFrame(sq["fichas_ordens_xtb"]), use_container_width=True, hide_index=True)
+
         st.markdown("---")
-        st.subheader("3. Estado da Carteira Após Venda")
+        st.subheader("4. Estado da Carteira Após Venda")
         st.dataframe(sq["df_saque_pos"], use_container_width=True, hide_index=True)
 
         if sq["equilibrada"]:
@@ -1580,7 +1778,7 @@ with tab3:
             st.warning("⚠ **Ajuste Recomendado:** Pelo menos um ativo ultrapassou a banda de ±5 pp em relação ao alvo estratégico.")
 
         st.markdown("---")
-        st.subheader("4. Confirmação Final de Segurança")
+        st.subheader("5. Confirmação Final de Segurança")
         c_m1, c_m2, c_m3, c_m4 = st.columns(4)
         c_m1.metric("Probabilidade de Sucesso", "98,7%", "por 30 Anos")
         c_m2.metric("Hierarquia Defensiva", "Preservada", "Proteção de Fundo Ativa")
@@ -1597,7 +1795,8 @@ with tab3:
             pdf_bytes3 = gerar_pdf_saque(
                 sq["patrimonio_inicial"], hicp, sq["saque_teorico"], sq["saque_efetivo"],
                 sq["ativo_venda"], sq["cotas_venda"], sq["tabela_records"], data_venda_str,
-                justificativa_saque=sq["justificativa_saque"], protecao_info=sq["protecao_info"]
+                justificativa_saque=sq["justificativa_saque"], protecao_info=sq["protecao_info"],
+                fichas_ordens_xtb=sq.get("fichas_ordens_xtb")
             )
             st.download_button(
                 label="📄 Descarregar Relatório de Saque em PDF",
@@ -1859,7 +2058,7 @@ with tab4:
             pnl_pct = (pnl_eur / custo_tot * 100) if custo_tot > 0 else 0.0
             
             peso_real_pct = (val_merc / valor_mercado_total_carteira * 100) if valor_mercado_total_carteira > 0 else 0.0
-            peso_alvo_pct = padroes_pos_global[sigla]["alvo"] * 100
+            peso_alvo_pct = st.session_state["carteira_etfs"][sigla]["alvo"] * 100
 
             resumo_etfs.append({
                 "Ativo": sigla,
