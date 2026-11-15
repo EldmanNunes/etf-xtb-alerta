@@ -3194,6 +3194,22 @@ with tab6:
             & p_venda.notna() & (p_venda > 0)
             & comissao.notna() & (comissao >= 0)
         )
+        
+        # Modifiquei aqui
+        st.write(pd.DataFrame({
+             "ids_validos": ids_validos,
+             "datas_compra": datas_compra.notna(),
+             "datas_venda": datas_venda.notna(),
+             "data_ordem": datas_venda >= datas_compra,
+             "sigla": validacao["Sigla"].isin(["IBCI","XDEQ","PRAB"]),
+             "volume": volumes.notna() & (volumes > 0),
+             "preco_compra": p_compra.notna() & (p_compra > 0),
+             "preco_venda": p_venda.notna() & (p_venda > 0),
+             "comissao": comissao.notna() & (comissao >= 0),
+            "valida": validas
+        }))
+        # terminei a modificação aqui
+        
         linhas_invalidas = int((~validas).sum())
         if linhas_invalidas:
             st.warning(f"{linhas_invalidas} linha(s) de venda incompleta(s) ou inválida(s) foram mantidas no histórico, mas excluídas da apuração até serem corrigidas.")
