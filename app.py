@@ -3170,21 +3170,17 @@ with tab6:
     if not df_v_proc.empty:
         colunas_obrigatorias = ["Data Compra", "Data Venda", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)"]
         validacao = df_v_proc[colunas_obrigatorias].copy()
-        # modificado aqui
-        st.write("COLUNAS DE VALIDACAO:", validacao.columns.tolist())
-        comissao_debug = pd.to_numeric(validacao.get("Comissão (€)", pd.Series(index=validacao.index, dtype=float)), errors="coerce")
-        st.write("COMISSAO DEBUG:")
-        st.write(comissao_debug)
-        # terminei aqui a modificação
 
         datas_compra = pd.to_datetime(validacao["Data Compra"], dayfirst=True, errors="coerce")
         datas_venda = pd.to_datetime(validacao["Data Venda"], dayfirst=True, errors="coerce")
         volumes = pd.to_numeric(validacao["Volume (Cotas)"], errors="coerce")
         p_compra = pd.to_numeric(validacao["Preço Compra (€)"], errors="coerce")
         p_venda = pd.to_numeric(validacao["Preço Venda (€)"], errors="coerce")
+        
         # Mudei aqui
         #comissao = pd.to_numeric(validacao.get("Comissão (€)", pd.Series(index=validacao.index, dtype=float)), errors="coerce")
         comissao = pd.to_numeric(df_v_proc["Comissão (€)"], errors="coerce") # por essa linha
+        
         ids_validos = df_v_proc["ID Posição"].astype(str).str.strip().ne("")
         validas = (
             ids_validos & datas_compra.notna() & datas_venda.notna() & (datas_venda >= datas_compra)
@@ -3195,20 +3191,6 @@ with tab6:
             & comissao.notna() & (comissao >= 0)
         )
         
-        # Modifiquei aqui
-        st.write(pd.DataFrame({
-             "ids_validos": ids_validos,
-             "datas_compra": datas_compra.notna(),
-             "datas_venda": datas_venda.notna(),
-             "data_ordem": datas_venda >= datas_compra,
-             "sigla": validacao["Sigla"].isin(["IBCI","XDEQ","PRAB"]),
-             "volume": volumes.notna() & (volumes > 0),
-             "preco_compra": p_compra.notna() & (p_compra > 0),
-             "preco_venda": p_venda.notna() & (p_venda > 0),
-             "comissao": comissao.notna() & (comissao >= 0),
-            "valida": validas
-        }))
-        # terminei a modificação aqui
         
         linhas_invalidas = int((~validas).sum())
         if linhas_invalidas:
@@ -3222,10 +3204,6 @@ with tab6:
         st.session_state.get('historico_vendas')
     )
     
-    # Modifiquei aqui
-    st.subheader("AUDITORIA COMPLETA")
-    st.dataframe(auditoria_lotes)
-    # Terminei a modificação aqui
     
     if not auditoria_lotes.empty:
         revisao_lote = auditoria_lotes[auditoria_lotes["Estado"] == "Revisão"]
@@ -3253,15 +3231,7 @@ with tab6:
         indices_aplicados = set(
             (auditoria_lotes.loc[auditoria_lotes["Estado"] == "Aplicada", "Linha Venda"] - 1).tolist()
         )
-        
-        # Modifiquei aqui
-        st.write("INDICES DF_V_PROC")
-        st.write(df_v_proc.index.tolist())
-
-        st.write("INDICES APLICADOS")
-        st.write(list(indices_aplicados))
-        # Terminei a alteração aqui
-        
+              
         df_v_proc = df_v_proc.loc[df_v_proc.index.isin(indices_aplicados)].copy()
 
     if not df_v_proc.empty:
