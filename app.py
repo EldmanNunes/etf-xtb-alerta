@@ -128,9 +128,9 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 Alocação Tática Dinâmica & Metas (TAA)")
 st.sidebar.caption("Defina percentuais flexíveis ou escolha um perfil tático pré-definido.")
 
-m_ibci_curr = float(st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas').get('IBCI', {}).get('alvo', 0.45) * 100)
-m_xdeq_curr = float(st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas').get('XDEQ', {}).get('alvo', 0.30) * 100)
-m_prab_curr = float(st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas').get('PRAB', {}).get('alvo', 0.25) * 100)
+m_ibci_curr = float(st.session_state.get('carteira_etfs', {}).get('IBCI', {}).get('alvo', 0.45) * 100)
+m_xdeq_curr = float(st.session_state.get('carteira_etfs', {}).get('XDEQ', {}).get('alvo', 0.30) * 100)
+m_prab_curr = float(st.session_state.get('carteira_etfs', {}).get('PRAB', {}).get('alvo', 0.25) * 100)
 
 col_taa1, col_taa2, col_taa3 = st.sidebar.columns(3)
 with col_taa1:
@@ -357,13 +357,18 @@ def gerar_modelo_excel():
         df_carteira_demo.to_excel(writer, sheet_name='Carteira_Geral', index=False)
     return output.getvalue()
 
-def exportar_carteira_excel_full(df_lotes, carteira_dict):
+def exportar_carteira_excel_full(df_lotes, carteira_dict, df_vendas=None):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         if df_lotes is not None and not df_lotes.empty:
             df_lotes.to_excel(writer, sheet_name='Historico_Lotes', index=False)
         else:
             pd.DataFrame(columns=["ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]).to_excel(writer, sheet_name='Historico_Lotes', index=False)
+
+        if df_vendas is not None and not df_vendas.empty:
+            df_vendas.to_excel(writer, sheet_name='Historico_Vendas', index=False)
+        else:
+            pd.DataFrame(columns=["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"]).to_excel(writer, sheet_name='Historico_Vendas', index=False)
 
         rows_c = []
         if carteira_dict:
@@ -387,6 +392,13 @@ def processar_importacao_excel(file_bytes):
             st.session_state['historico_compras'] = sanitizar_df_historico(df_lotes)
             if 'editor_lotes_compras' in st.session_state:
                 del st.session_state['editor_lotes_compras']
+
+        # Importar Vendas (Aba Fiscal)
+        if 'Historico_Vendas' in xls.sheet_names:
+            df_vendas = pd.read_excel(xls, sheet_name='Historico_Vendas')
+            st.session_state['historico_vendas'] = sanitizar_df_vendas(df_vendas)
+            if 'editor_lotes_vendas' in st.session_state:
+                del st.session_state['editor_lotes_vendas']
         
         # Importar Carteira
         if 'Carteira_Geral' in xls.sheet_names:
