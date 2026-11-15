@@ -128,9 +128,9 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 Alocação Tática Dinâmica & Metas (TAA)")
 st.sidebar.caption("Defina percentuais flexíveis ou escolha um perfil tático pré-definido.")
 
-m_ibci_curr = float(st.session_state.get('carteira_etfs', {}).get('IBCI', {}).get('alvo', 0.45) * 100)
-m_xdeq_curr = float(st.session_state.get('carteira_etfs', {}).get('XDEQ', {}).get('alvo', 0.30) * 100)
-m_prab_curr = float(st.session_state.get('carteira_etfs', {}).get('PRAB', {}).get('alvo', 0.25) * 100)
+m_ibci_curr = float(st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas').get('IBCI', {}).get('alvo', 0.45) * 100)
+m_xdeq_curr = float(st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas').get('XDEQ', {}).get('alvo', 0.30) * 100)
+m_prab_curr = float(st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas').get('PRAB', {}).get('alvo', 0.25) * 100)
 
 col_taa1, col_taa2, col_taa3 = st.sidebar.columns(3)
 with col_taa1:
@@ -414,8 +414,13 @@ def limpar_dados_sessao():
     st.session_state['historico_compras'] = pd.DataFrame(columns=[
         "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
     ])
+    st.session_state['historico_vendas'] = pd.DataFrame(columns=[
+        "ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"
+    ])
     if 'editor_lotes_compras' in st.session_state:
         del st.session_state['editor_lotes_compras']
+    if 'editor_lotes_vendas' in st.session_state:
+        del st.session_state['editor_lotes_vendas']
     for sigla in ["IBCI", "XDEQ", "PRAB"]:
         if 'carteira_etfs' in st.session_state and sigla in st.session_state['carteira_etfs']:
             st.session_state['carteira_etfs'][sigla]['cotas'] = 0
@@ -461,7 +466,7 @@ with st.sidebar.expander("📂 Importar / Exportar Planilha Excel (.xlsx)", expa
     st.markdown("**2. Exportar Dados Atuais para Excel**")
     excel_bytes_export = exportar_carteira_excel_full(
         st.session_state.get('historico_compras'),
-        st.session_state.get('carteira_etfs', {})
+        st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas')
     )
     st.download_button(
         label="📤 Exportar Carteira em Excel (.xlsx)",
@@ -830,6 +835,158 @@ def gerar_pdf_saque(patrimonio_inicial, hicp, saque_teorico, saque_efetivo, ativ
 
     return bytes(pdf.output())
 
+
+
+# =========================================================
+# FUNÇÕES DE SUPORTE FISCAL (IRS / IRPF - ABA 6)
+# =========================================================
+@st.cache_data(ttl=86400)
+def obter_taxa_cambio_historica(data_str, base='EUR', alvo='BRL'):
+    """Obtém a taxa de câmbio histórica oficial do BCE (Frankfurter API) para uma data específica (DD/MM/YYYY ou YYYY-MM-DD)."""
+    try:
+        if '/' in str(data_str):
+            dt_obj = datetime.strptime(str(data_str).strip(), "%d/%m/%Y")
+        else:
+            dt_obj = pd.to_datetime(data_str)
+        dt_fmt = dt_obj.strftime("%Y-%m-%d")
+        domain_frankfurter = "api." + "frankfurter." + "dev"
+        endpoint = f'https://{domain_frankfurter}/v1/{dt_fmt}?from={base}&to={alvo}'
+        r = requests.get(endpoint, timeout=5)
+        if r.status_code == 200:
+            val = r.json().get('rates', {}).get(alvo)
+            if val is not None:
+                return float(val)
+    except Exception:
+        pass
+
+    try:
+        df_c = obter_dados_cambio(base=base, alvo=alvo, inicio='2020-01-01')
+        if not df_c.empty:
+            idx_dt = pd.to_datetime(dt_obj)
+            if idx_dt in df_c.index:
+                return float(df_c.loc[idx_dt, 'rate'])
+            idx_nearest = df_c.index.get_indexer([idx_dt], method='nearest')[0]
+            return float(df_c.iloc[idx_nearest]['rate'])
+    except Exception:
+        pass
+
+    return 6.12
+
+def sanitizar_df_vendas(df):
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame(columns=[
+            "ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"
+        ])
+
+    df_out = df.copy()
+    cols_req = ["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"]
+    for col in cols_req:
+        if col not in df_out.columns:
+            df_out[col] = "" if col in ["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla"] else 0
+
+    df_out = df_out[cols_req]
+
+    def _fix_id(val):
+        if pd.isna(val) or val == "":
+            return ""
+        if isinstance(val, float) and val.is_integer():
+            return str(int(val))
+        return str(val).strip()
+    df_out["ID Posição"] = df_out["ID Posição"].apply(_fix_id)
+
+    def _fix_date(val):
+        if pd.isna(val) or val == "":
+            return datetime.now().strftime("%d/%m/%Y")
+        if isinstance(val, (pd.Timestamp, datetime, date)):
+            return val.strftime("%d/%m/%Y")
+        s = str(val).strip()
+        try:
+            dt = pd.to_datetime(s, dayfirst=True)
+            return dt.strftime("%d/%m/%Y")
+        except Exception:
+            return s
+    df_out["Data Compra"] = df_out["Data Compra"].apply(_fix_date)
+    df_out["Data Venda"] = df_out["Data Venda"].apply(_fix_date)
+
+    sigla_map_to_full = {
+        "IBCI": "IBCI - Inflation Linked",
+        "XDEQ": "XDEQ - World Quality",
+        "PRAB": "PRAB - Amundi 0-1Y"
+    }
+    full_to_sigla = {v: k for k, v in sigla_map_to_full.items()}
+
+    def _fix_sigla(row):
+        sigla_val = str(row["Sigla"]).strip().upper() if pd.notnull(row["Sigla"]) else ""
+        etf_val = str(row["ETF"]).strip() if pd.notnull(row["ETF"]) else ""
+        if sigla_val in sigla_map_to_full:
+            actual_sigla = sigla_val
+        elif etf_val in full_to_sigla:
+            actual_sigla = full_to_sigla[etf_val]
+        else:
+            actual_sigla = "IBCI"
+        actual_etf = sigla_map_to_full[actual_sigla]
+        return pd.Series([actual_etf, actual_sigla])
+
+    df_out[["ETF", "Sigla"]] = df_out.apply(_fix_sigla, axis=1)
+
+    df_out["Volume (Cotas)"] = pd.to_numeric(df_out["Volume (Cotas)"], errors='coerce').fillna(1).apply(lambda x: max(1, int(round(float(x)))))
+    df_out["Preço Compra (€)"] = pd.to_numeric(df_out["Preço Compra (€)"], errors='coerce').fillna(0.01).apply(lambda x: max(0.01, float(x)))
+    df_out["Preço Venda (€)"] = pd.to_numeric(df_out["Preço Venda (€)"], errors='coerce').fillna(0.01).apply(lambda x: max(0.01, float(x)))
+    df_out["Comissão (€)"] = pd.to_numeric(df_out["Comissão (€)"], errors='coerce').fillna(0.0).apply(lambda x: max(0.0, float(x)))
+
+    return df_out
+
+def obter_df_vendas_demo():
+    return pd.DataFrame([
+        {
+            "ID Posição": "1002849120", "Data Compra": "15/01/2025", "Data Venda": "14/11/2026",
+            "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 5,
+            "Preço Compra (€)": 225.50, "Preço Venda (€)": 230.10, "Comissão (€)": 0.0
+        },
+        {
+            "ID Posição": "2280842619", "Data Compra": "10/02/2025", "Data Venda": "14/11/2026",
+            "ETF": "XDEQ - World Quality", "Sigla": "XDEQ", "Volume (Cotas)": 10,
+            "Preço Compra (€)": 75.20, "Preço Venda (€)": 81.75, "Comissão (€)": 0.0
+        }
+    ])
+
+def gerar_pdf_fiscal(patrimonio_vendas_eur, total_lucro_eur, patrimonio_vendas_brl, total_lucro_brl, tabela_irs_records, tabela_irpf_records, data_str):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font('Helvetica', 'B', 15)
+    pdf.cell(pdf.epw, 10, sanitizar_pdf('Carteira Ideal UCITS - Relatório Fiscal & Apuração IRS / IRPF (v3.8)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.set_font('Helvetica', 'I', 10)
+    pdf.cell(pdf.epw, 6, sanitizar_pdf(f'Data da Emissão: {data_str} | Suporte Fiscal Portugal (IRS Anexo G) & Brasil (IRPF GCAP)'), new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.ln(5)
+
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(pdf.epw, 8, sanitizar_pdf('1. Resumo Geral de Apuração de Mais-Valias'), new_x='LMARGIN', new_y='NEXT')
+    pdf.set_font('Helvetica', '', 10)
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total de Alienações (€): EUR {fmt_br(patrimonio_vendas_eur, 2)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Mais-Valia Líquida Acumulada (€ - IRS Portugal): EUR {fmt_br(total_lucro_eur, 2, signed=True)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Total de Alienações em Reais (BRL): R$ {fmt_br(patrimonio_vendas_brl, 2)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Ganho de Capital Acumulado (BRL - IRPF Brasil): R$ {fmt_br(total_lucro_brl, 2, signed=True)}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(4)
+
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(pdf.epw, 8, sanitizar_pdf('2. Portugal - Declaração de IRS (Anexo G / Categoria G)'), new_x='LMARGIN', new_y='NEXT')
+    pdf.set_font('Helvetica', '', 9)
+    for r in tabela_irs_records:
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Pos #{r.get('ID Posição', '')} | {r.get('Ativo', '')} | Acq: {r.get('Data Aquisição', '')} ({r.get('Custo (€)', '')}) | Alien: {r.get('Data Alienação', '')} ({r.get('Venda (€)', '')}) | Result: {r.get('Mais-Valia (€)', '')}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(4)
+
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(pdf.epw, 8, sanitizar_pdf('3. Brasil - Declaração de IRPF (Ganho de Capital no Exterior - GCAP)'), new_x='LMARGIN', new_y='NEXT')
+    pdf.set_font('Helvetica', '', 9)
+    for r in tabela_irpf_records:
+        pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Pos #{r.get('ID Posição', '')} | {r.get('Ativo', '')} | Compra: {r.get('Data Compra', '')} (Tx: {r.get('Câmbio Compra', '')} -> {r.get('Custo BRL', '')}) | Venda: {r.get('Data Venda', '')} (Tx: {r.get('Câmbio Venda', '')} -> {r.get('Venda BRL', '')}) | Result: {r.get('Ganho BRL', '')}"), new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(4)
+
+    pdf.set_font('Helvetica', 'I', 8)
+    pdf.multi_cell(pdf.epw, 4, sanitizar_pdf('Nota: Este documento possui caráter exclusivamente informativo de suporte à elaboração das declarações fiscais (Finanças Portugal & Receita Federal do Brasil). As taxas de câmbio são baseadas no fecho diário oficial do Banco Central Europeu (BCE).'), new_x='LMARGIN', new_y='NEXT')
+
+    return bytes(pdf.output())
+
 # FUNÇÕES DE CÂMBIO (ABA 5)
 @st.cache_data(ttl=14400)
 def obter_dados_cambio(base='EUR', alvo='BRL', inicio='2024-01-01'):
@@ -1007,7 +1164,7 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
     return bytes(pdf.output())
 
 # SEPARADORES PRINCIPAIS (SEQUÊNCIA EXATA SOLICITADA)
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Análise Técnica & Relatório (ETFs)",
     "⚖ Calculadora de Rebalanceamento",
     "💸 Gestão Anual de Saque & Reequilíbrio",
@@ -1501,9 +1658,9 @@ with tab2:
 # =========================================================
 with tab3:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.info(f"ℹ **Metadados de Auditoria & Rastreabilidade (v3.6 - Alocação Tática Dinâmica (TAA) & Liquidação de Lotes XTB):** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.5 (Fase 3 Completa - Fichas Técnicas & Proteção de Fundo)")
+    st.info(f"ℹ **Metadados de Auditoria & Rastreabilidade (v3.7 - Sincronização Dinâmica de Saque & Recálculo em Tempo Real):** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.5 (Fase 3 Completa - Fichas Técnicas & Proteção de Fundo)")
     st.subheader("💸 Gestão Anual de Saque & Reequilíbrio UCITS")
-    st.caption("Estratégia Defensiva & Tática v3.6 | Proteção de Fundo contra Sequence of Returns Risk")
+    st.caption("Estratégia Defensiva & Tática v3.7 | Sincronização em Tempo Real de Saque & Proteção de Fundo")
 
     col_s1, col_s2, col_s3 = st.columns(3)
 
@@ -1577,7 +1734,7 @@ with tab3:
             precos_saque_in[sigla] = p_venda
             protecao_input[sigla] = prot
 
-    def processar_saque():
+    def processar_saque(modo_override=None):
         val_atual = {a: cotas_saque_in[a] * precos_saque_in[a] for a in cotas_saque_in}
         patrimonio_inicial = sum(val_atual.values())
 
@@ -1588,7 +1745,7 @@ with tab3:
         lucro_neto_real = info_pnl['lucro_neto']
         saque_conservador = max(0.0, min(saque_teorico, lucro_neto_real))
         
-        modo_sel = st.session_state.get('modo_saque_sel', '')
+        modo_sel = modo_override if modo_override is not None else st.session_state.get('modo_saque_sel', '')
         if 'Conservador' in modo_sel:
             saque_alvo_executar = saque_conservador
         else:
@@ -1720,34 +1877,48 @@ with tab3:
         processar_saque()
 
     if "saque_data" in st.session_state:
-        sq = st.session_state["saque_data"]
-        st.markdown("---")
-        st.subheader("2. Cenários de Saque & Preservação do Capital Real")
-        
         info_pnl_show = obter_rentabilidade_global_historico()
         lucro_neto_disp = info_pnl_show['lucro_neto']
-        saque_conserv_disp = max(0.0, min(sq['saque_teorico'], lucro_neto_disp))
+        saque_conserv_disp = max(0.0, min(st.session_state["saque_data"]['saque_teorico'], lucro_neto_disp))
+
+        # Check if radio selection changed and re-run calculation dynamically
+        opcoes_radio = [
+            f"Saque Teórico HICP (€ {fmt_br(st.session_state['saque_data']['saque_teorico'], 2)})",
+            f"Saque Real Conservador / Preservativo (€ {fmt_br(saque_conserv_disp, 2)})"
+        ]
+        
+        def _on_radio_change():
+            sel = st.session_state.get('modo_saque_sel')
+            processar_saque(modo_override=sel)
+
+        st.markdown("---")
+        st.subheader("2. Cenários de Saque & Preservação do Capital Real")
 
         m1, m2, m3 = st.columns(3)
         with m1:
-            st.metric("Saque Teórico HICP", f"€ {fmt_br(sq['saque_teorico'], 2)}")
+            st.metric("Saque Teórico HICP", f"€ {fmt_br(st.session_state['saque_data']['saque_teorico'], 2)}")
         with m2:
             st.metric("Lucro Neto Acumulado Real", f"€ {fmt_br(lucro_neto_disp, 2)}", f"{fmt_br(info_pnl_show['retorno_pct'], 2, signed=True, suffix='%')}")
         with m3:
             st.metric("Saque Real Conservador (Teto Lucro)", f"€ {fmt_br(saque_conserv_disp, 2)}")
 
-        if sq['saque_teorico'] > lucro_neto_disp and info_pnl_show['custo_total'] > 0:
-            st.error(f"🚨 **Alerta de Erosão do Capital Principal:** O saque pretendido de **€ {fmt_br(sq['saque_teorico'], 2)}** excede o lucro líquido acumulado da carteira (**€ {fmt_br(lucro_neto_disp, 2)}**). Sacar este valor consumirá **€ {fmt_br(sq['saque_teorico'] - max(0.0, lucro_neto_disp), 2)}** do capital principal investido original.")
+        if st.session_state['saque_data']['saque_teorico'] > lucro_neto_disp and info_pnl_show['custo_total'] > 0:
+            st.error(f"🚨 **Alerta de Erosão do Capital Principal:** O saque pretendido de **€ {fmt_br(st.session_state['saque_data']['saque_teorico'], 2)}** excede o lucro líquido acumulado da carteira (**€ {fmt_br(lucro_neto_disp, 2)}**). Sacar este valor consumirá **€ {fmt_br(st.session_state['saque_data']['saque_teorico'] - max(0.0, lucro_neto_disp), 2)}** do capital principal investido original.")
 
+        idx_default = 0 if st.session_state['saque_data']['saque_teorico'] <= max(0.0, lucro_neto_disp) else 1
         st.radio(
             "🎯 Modalidade de Saque Selecionada:",
-            options=[
-                f"Saque Teórico HICP (€ {fmt_br(sq['saque_teorico'], 2)})",
-                f"Saque Real Conservador / Preservativo (€ {fmt_br(saque_conserv_disp, 2)})"
-            ],
-            index=0 if sq['saque_teorico'] <= max(0.0, lucro_neto_disp) else 1,
-            key="modo_saque_sel"
+            options=opcoes_radio,
+            index=idx_default,
+            key="modo_saque_sel",
+            on_change=_on_radio_change
         )
+        
+        # Recalculate once with current radio setting if needed
+        sel_atual = st.session_state.get('modo_saque_sel', opcoes_radio[idx_default])
+        processar_saque(modo_override=sel_atual)
+
+        sq = st.session_state["saque_data"]
 
         s1, s2 = st.columns(2)
         with s1:
@@ -1878,7 +2049,7 @@ with tab4:
             st.markdown("**2. Exportar Carteira**")
             ex_bytes_t4 = exportar_carteira_excel_full(
                 st.session_state.get('historico_compras'),
-                st.session_state.get('carteira_etfs', {})
+                st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas')
             )
             st.download_button(
                 label="📤 Exportar Planilha (.xlsx)",
@@ -2534,6 +2705,223 @@ with tab5:
                     st.warning(msg)
 
 # Botão de Download Histórico
+
+# =========================================================
+# TAB 6: RELATÓRIO FISCAL & APURAÇÃO IRS / IRPF
+# =========================================================
+with tab6:
+    data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
+    st.info(f"ℹ **Metadados de Auditoria & Rastreabilidade (v3.8 - Relatório Fiscal IRS/IRPF & Envio por E-mail):** Atualizado em: {data_hora_atual} UTC | API Frankfurter (Cotações Históricas BCE EUR/BRL) | Suporte Fiscal Portugal (Anexo G) & Brasil (GCAP)")
+    st.subheader("🏛️ Relatório Fiscal & Apuração de Impostos UCITS (IRS Portugal & IRPF Brasil)")
+    st.caption("Cálculo automático de mais-valias e ganhos de capital com conversão cambial nas datas exatas de aquisição e alienação.")
+
+    st.markdown("### 1. Histórico de Vendas & Alienações Registadas (xStation 5)")
+    st.caption("Registe ou edite os lotes alienados na XTB. Pode sincronizar automaticamente com o último saque executado na Aba 3.")
+
+    if 'historico_vendas' not in st.session_state or not isinstance(st.session_state['historico_vendas'], pd.DataFrame) or st.session_state['historico_vendas'].empty:
+        st.session_state['historico_vendas'] = obter_df_vendas_demo()
+
+    col_sync1, col_sync2 = st.columns([2, 1])
+    with col_sync1:
+        if st.button("🔄 Sincronizar Vendas Recomendadas da Aba 3 (Gestão de Saque)", use_container_width=True, key="btn_sync_saque_vendas"):
+            if 'saque_data' in st.session_state and 'fichas_ordens_xtb' in st.session_state['saque_data']:
+                fichas = st.session_state['saque_data']['fichas_ordens_xtb']
+                dt_venda_str = datetime.now().strftime("%d/%m/%Y")
+                novos_recs = []
+                for f_item in fichas:
+                    p_compra_num = float(f_item['Preço Compra (€)'].replace('€', '').replace('.', '').replace(',', '.').strip()) if isinstance(f_item['Preço Compra (€)'], str) else float(f_item['Preço Compra (€)'])
+                    p_venda_num = float(f_item['Preço Venda (€)'].replace('€', '').replace('.', '').replace(',', '.').strip()) if isinstance(f_item['Preço Venda (€)'], str) else float(f_item['Preço Venda (€)'])
+                    novos_recs.append({
+                        "ID Posição": f_item['ID Posição XTB'],
+                        "Data Compra": f_item['Data Compra'],
+                        "Data Venda": dt_venda_str,
+                        "ETF": f_item['ETF'],
+                        "Sigla": f_item['Sigla'],
+                        "Volume (Cotas)": int(f_item['Cotas a Liquidar']),
+                        "Preço Compra (€)": p_compra_num,
+                        "Preço Venda (€)": p_venda_num,
+                        "Comissão (€)": 0.0
+                    })
+                if novos_recs:
+                    df_novos = pd.DataFrame(novos_recs)
+                    df_concat = pd.concat([st.session_state['historico_vendas'], df_novos], ignore_index=True)
+                    st.session_state['historico_vendas'] = sanitizar_df_vendas(df_concat)
+                    st.success("Vendas da Aba 3 sincronizadas com sucesso para o Relatório Fiscal!")
+                    st.rerun()
+                else:
+                    st.info("Nenhuma ordem de venda pendente encontrada na Aba 3 para sincronizar.")
+            else:
+                st.warning("Execute primeiro o processo de saque na Aba 3 para gerar as ordens de venda.")
+
+    with col_sync2:
+        if st.button("🗑️ Limpar Histórico de Vendas", use_container_width=True, key="btn_clear_vendas"):
+            st.session_state['historico_vendas'] = pd.DataFrame(columns=[
+                "ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"
+            ])
+            if 'editor_lotes_vendas' in st.session_state:
+                del st.session_state['editor_lotes_vendas']
+            st.rerun()
+
+    df_vendas_san = sanitizar_df_vendas(st.session_state['historico_vendas'])
+    edited_vendas_df = st.data_editor(
+        df_vendas_san,
+        num_rows="dynamic",
+        use_container_width=True,
+        key="editor_lotes_vendas",
+        column_config={
+            "ID Posição": st.column_config.TextColumn("ID Posição XTB", required=True),
+            "Data Compra": st.column_config.TextColumn("Data Compra (DD/MM/AAAA)", required=True),
+            "Data Venda": st.column_config.TextColumn("Data Venda (DD/MM/AAAA)", required=True),
+            "ETF": st.column_config.SelectboxColumn("ETF", options=["IBCI - Inflation Linked", "XDEQ - World Quality", "PRAB - Amundi 0-1Y"], required=True),
+            "Sigla": st.column_config.SelectboxColumn("Sigla", options=["IBCI", "XDEQ", "PRAB"], required=True),
+            "Volume (Cotas)": st.column_config.NumberColumn("Volume (Cotas)", min_value=1, step=1, required=True),
+            "Preço Compra (€)": st.column_config.NumberColumn("Preço Compra (€)", min_value=0.01, format="%.2f", required=True),
+            "Preço Venda (€)": st.column_config.NumberColumn("Preço Venda (€)", min_value=0.01, format="%.2f", required=True),
+            "Comissão (€)": st.column_config.NumberColumn("Comissão (€)", min_value=0.0, format="%.2f", required=True),
+        }
+    )
+
+    if not edited_vendas_df.equals(st.session_state['historico_vendas']):
+        st.session_state['historico_vendas'] = sanitizar_df_vendas(edited_vendas_df)
+
+    df_v_proc = st.session_state['historico_vendas'].copy()
+
+    if not df_v_proc.empty:
+        st.markdown("---")
+        st.markdown("### 2. Apuração Fiscal Discriminada (IRS Portugal & IRPF Brasil)")
+        st.caption("O sistema consulta automaticamente as taxas de câmbio oficiais do BCE nas datas exatas de aquisição e alienação.")
+
+        records_irs = []
+        records_irpf = []
+
+        patrimonio_vendas_eur = 0.0
+        total_lucro_eur = 0.0
+        patrimonio_vendas_brl = 0.0
+        total_lucro_brl = 0.0
+
+        with st.spinner("A consultar taxas de câmbio históricas EUR/BRL no Banco Central Europeu..."):
+            for _, row in df_v_proc.iterrows():
+                id_p = str(row["ID Posição"])
+                dt_c = str(row["Data Compra"])
+                dt_v = str(row["Data Venda"])
+                sigla = str(row["Sigla"])
+                etf_name = str(row["ETF"])
+                vol = int(pd.to_numeric(row["Volume (Cotas)"], errors='coerce') or 1)
+                pc = float(pd.to_numeric(row["Preço Compra (€)"], errors='coerce') or 0.01)
+                pv = float(pd.to_numeric(row["Preço Venda (€)"], errors='coerce') or 0.01)
+                com = float(pd.to_numeric(row["Comissão (€)"], errors='coerce') or 0.0)
+
+                custo_eur = (vol * pc) + com
+                venda_eur = (vol * pv)
+                pnl_eur = venda_eur - custo_eur
+
+                patrimonio_vendas_eur += venda_eur
+                total_lucro_eur += pnl_eur
+
+                tx_compra_brl = obter_taxa_cambio_historica(dt_c, base='EUR', alvo='BRL')
+                tx_venda_brl = obter_taxa_cambio_historica(dt_v, base='EUR', alvo='BRL')
+
+                custo_brl = custo_eur * tx_compra_brl
+                venda_brl = venda_eur * tx_venda_brl
+                pnl_brl = venda_brl - custo_brl
+
+                patrimonio_vendas_brl += venda_brl
+                total_lucro_brl += pnl_brl
+
+                records_irs.append({
+                    "ID Posição": id_p,
+                    "Ativo": sigla,
+                    "Data Aquisição": dt_c,
+                    "Custo (€)": f"€ {fmt_br(custo_eur, 2)}",
+                    "Data Alienação": dt_v,
+                    "Venda (€)": f"€ {fmt_br(venda_eur, 2)}",
+                    "Mais-Valia (€)": f"€ {fmt_br(pnl_eur, 2, signed=True)}",
+                    "Status Fiscal": "🔴 Mais-Valia (Tributável)" if pnl_eur > 0 else "🟢 Menos-Valia (Abatível)"
+                })
+
+                records_irpf.append({
+                    "ID Posição": id_p,
+                    "Ativo": sigla,
+                    "Data Compra": dt_c,
+                    "Câmbio Compra": fmt_br(tx_compra_brl, 4),
+                    "Custo BRL": f"R$ {fmt_br(custo_brl, 2)}",
+                    "Data Venda": dt_v,
+                    "Câmbio Venda": fmt_br(tx_venda_brl, 4),
+                    "Venda BRL": f"R$ {fmt_br(venda_brl, 2)}",
+                    "Ganho BRL": f"R$ {fmt_br(pnl_brl, 2, signed=True)}"
+                })
+
+        m_f1, m_f2, m_f3, m_f4 = st.columns(4)
+        m_f1.metric("Total Alienado (€)", f"€ {fmt_br(patrimonio_vendas_eur, 2)}")
+        m_f2.metric("Mais-Valia IRS Portugal (€)", f"€ {fmt_br(total_lucro_eur, 2, signed=True)}")
+        m_f3.metric("Total Alienado (BRL)", f"R$ {fmt_br(patrimonio_vendas_brl, 2)}")
+        m_f4.metric("Ganho de Capital IRPF (BRL)", f"R$ {fmt_br(total_lucro_brl, 2, signed=True)}")
+
+        st.markdown("#### **🇵🇹 Portugal — Declaração de IRS (Anexo G / Quadro 9)**")
+        st.caption("Valores em Euros prontos para preenchimento no Anexo G (Categoria G - Incrementos Patrimoniais).")
+        st.dataframe(pd.DataFrame(records_irs), use_container_width=True, hide_index=True)
+
+        st.markdown("#### **🇧🇷 Brasil — Declaração de IRPF (Ganho de Capital no Exterior - GCAP)**")
+        st.caption("Valores convertidos em Reais (BRL) pela taxa oficial do Banco Central Europeu nas datas de aquisição e alienação.")
+        st.dataframe(pd.DataFrame(records_irpf), use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        st.subheader("📥 Exportação e Envio do Relatório Fiscal")
+        col_pdf6, col_email6 = st.columns(2)
+        data_hoje6 = datetime.now().strftime("%d/%m/%Y")
+
+        with col_pdf6:
+            st.markdown("#### **Salvar Relatório Fiscal em PDF**")
+            st.caption("Gere o documento PDF oficial com a discriminação dos lotes vendidos, taxas de câmbio e apuração IRS/IRPF.")
+            pdf_bytes6 = gerar_pdf_fiscal(
+                patrimonio_vendas_eur, total_lucro_eur, patrimonio_vendas_brl, total_lucro_brl,
+                records_irs, records_irpf, data_hoje6
+            )
+            st.download_button(
+                label="📄 Descarregar Relatório Fiscal em PDF",
+                data=pdf_bytes6,
+                file_name=f"Relatorio_Fiscal_IRS_IRPF_{datetime.now().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="btn_pdf_tab6"
+            )
+
+        with col_email6:
+            st.markdown("#### **Enviar Relatório Fiscal por E-mail**")
+            st.caption("Dispare o relatório de apuração tributária diretamente para a sua caixa de correio.")
+            email_destin6 = st.text_input("E-mail de Destino:", value="", placeholder="exemplo@email.com", key="dest_email_tab6")
+
+            if st.button("📧 Enviar Relatório Fiscal por E-mail Agora", use_container_width=True, key="btn_email_tab6"):
+                if not email_destin6:
+                    st.warning("⚠ Por favor, introduza o e-mail de destino.")
+                else:
+                    corpo_email6 = (
+                        "🏛️ Relatório Fiscal & Apuração de Impostos UCITS (v3.8)\n"
+                        f"Data: {data_hoje6}\n\n"
+                        f"• Total Alienado (€): EUR {fmt_br(patrimonio_vendas_eur, 2)}\n"
+                        f"• Mais-Valia Líquida Acumulada (IRS Portugal): EUR {fmt_br(total_lucro_eur, 2, signed=True)}\n"
+                        f"• Total Alienado (BRL): R$ {fmt_br(patrimonio_vendas_brl, 2)}\n"
+                        f"• Ganho de Capital Acumulado (IRPF Brasil): R$ {fmt_br(total_lucro_brl, 2, signed=True)}\n\n"
+                        "📋 Apuração Discriminada por Lote Liquidado:\n"
+                    )
+                    for r in records_irs:
+                        corpo_email6 += f" - Pos #{r.get('ID Posição', '')} | {r.get('Ativo', '')} | Compra: {r.get('Data Aquisição', '')} | Venda: {r.get('Data Alienação', '')} | IRS: {r.get('Mais-Valia (€)', '')}\n"
+
+                    corpo_email6 += f"\n💡 Câmbio Oficial BCE consultado via API para as datas de aquisição e alienação.\n---\nAcesse o painel interativo em: https://{app_domain}"
+
+                    sucesso, msg = enviar_email_relatorio(
+                        destinatario=email_destin6,
+                        assunto=f"Relatório Fiscal IRS/IRPF ETFs XTB - {data_hoje6}",
+                        corpo_texto=corpo_email6
+                    )
+                    if sucesso:
+                        st.success(msg)
+                    else:
+                        st.warning(msg)
+    else:
+        st.info("Nenhum lote alienado registado. Adicione vendas na tabela acima ou sincronize com a Aba 3 para gerar a apuração fiscal.")
+
+
 st.markdown("---")
 if not dados.empty:
     csv = dados.to_csv().encode('utf-8')
