@@ -20,59 +20,28 @@ APIs e Fontes de Dados:
   • Frankfurter API (BCE): Taxas de câmbio históricas e spot oficiais do BCE.
 =============================================================================
 """
-
-
 import os
-
-
 import io
-
-
 import requests
-
-
 import smtplib
-
-
 from email.mime.text import MIMEText
-
-
 from datetime import datetime, date
-
-
 import numpy as np
-
-
 import pandas as pd
-
-
 import yfinance as yf
-
-
 import streamlit as st
-
-
 import plotly.graph_objects as go
-
-
 from plotly.subplots import make_subplots
-
-
 from fpdf import FPDF
-
-
 from statsmodels.tsa.arima.model import ARIMA
-
-
 from sklearn.linear_model import LinearRegression
 
-
+# Configuração da página
 st.set_page_config(page_title="ETF Tracker, Rebalancer & Análise Cambial XTB", layout="wide", page_icon="📊 ")
-
 
 st.title("📊 ETF Tracker, Rebalancer & Análise Cambial XTB")
 
-
+# Mapeamento e Alvos Estratégicos dos ETFs
 ETF_MAP = {
     "IBCI - Inflation Linked": {
         "ticker": "IBCI.DE", "target_pct": 0.45, "nome": "Inflation Linked",
@@ -97,11 +66,14 @@ ETF_MAP = {
     }
 }
 
+tickers_etf = [meta["ticker"] for meta in ETF_MAP.values()]
 
-# =========================================================
-# FUNÇÕES AUXILIARES E UTILITÁRIAS (DECLARADAS NO TOPO)
-# =========================================================
-
+# Mapeamento e Posição Canónica dos ETFs
+padroes_pos_global = {
+    "IBCI": {"cotas": 0, "p_compra": 230.19, "p_venda": 230.10, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50, "nome_full": "IBCI - Inflation Linked"},
+    "XDEQ": {"cotas": 0, "p_compra": 81.82, "p_venda": 81.75, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35, "nome_full": "XDEQ - World Quality"},
+    "PRAB": {"cotas": 0, "p_compra": 21.84, "p_venda": 21.82, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30, "nome_full": "PRAB - Amundi 0-1Y"}
+}
 def update_carteira_state(sigla, field, widget_key):
     val = st.session_state[widget_key]
     if field == 'cotas':
@@ -158,6 +130,7 @@ def sincronizar_chaves_carteira():
                 pass
 
 
+@st.cache_data(ttl=3600)
 def carregar_dados_etfs(tickers_list, period):
     df = yf.download(tickers_list, period=period, auto_adjust=True, progress=False)
     if isinstance(df.columns, pd.MultiIndex):
@@ -405,6 +378,7 @@ def limpar_dados_sessao():
     sincronizar_chaves_carteira()
 
 
+@st.cache_data(ttl=86400)
 def obter_hicp_oficial_eurostat():
     try:
         domain_eurostat = "ec." + "europa." + "eu"
@@ -734,6 +708,7 @@ def gerar_pdf_saque(patrimonio_inicial, hicp, saque_teorico, saque_efetivo, ativ
     return bytes(pdf.output())
 
 
+@st.cache_data(ttl=86400)
 def obter_taxa_cambio_historica(data_str, base='EUR', alvo='BRL'):
     """Obtém a taxa de câmbio histórica oficial do BCE (Frankfurter API) para uma data específica (DD/MM/YYYY ou YYYY-MM-DD)."""
     try:
@@ -884,6 +859,7 @@ def gerar_pdf_fiscal(patrimonio_vendas_eur, total_lucro_eur, patrimonio_vendas_b
     return bytes(pdf.output())
 
 
+@st.cache_data(ttl=14400)
 def obter_dados_cambio(base='EUR', alvo='BRL', inicio='2024-01-01'):
     domain_frankfurter = "api." + "frankfurter." + "dev"
     endpoint_fx = f'https://{domain_frankfurter}/v1/{inicio}..?from={base}&to={alvo}'
@@ -1063,11 +1039,11 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
     return bytes(pdf.output())
 
 
+
 # =========================================================
-# FLUXO DE EXECUÇÃO PRINCIPAL DA APLICAÇÃO
+# FLUXO DE EXECUÇÃO DA BARRA LATERAL & INICIALIZAÇÃO
 # =========================================================
 
-# Sidebar - Configurações Gerais
 st.sidebar.header("⚙ Configurações Gerais")
 periodo = st.sidebar.selectbox(
     "Período Histórico (Gráficos ETFs):",
@@ -1075,7 +1051,14 @@ periodo = st.sidebar.selectbox(
     index=2
 )
 
-tickers_etf = [meta["ticker"] for meta in ETF_MAP.values()]
+st.sidebar.markdown("---")
+st.sidebar.subheader("📈 Indicadores Técnicos (ETFs)")
+mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
+mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
+mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
+mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
+
+# Download e Inicialização da Carteira
 dados = carregar_dados_etfs(tickers_etf, periodo)
 
 if 'carteira_etfs' not in st.session_state:
@@ -1088,13 +1071,13 @@ if 'carteira_etfs' not in st.session_state:
                 p_live = float(s_t.iloc[-1])
                 info["p_compra"] = round(p_live, 2)
                 info["p_venda"] = round(p_live, 2)
+    sincronizar_chaves_carteira()
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("📈 Indicadores Técnicos (ETFs)")
-mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
-mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
-mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
-mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
+if 'historico_compras' not in st.session_state:
+    st.session_state['historico_compras'] = sanitizar_df_historico(pd.DataFrame(columns=[
+        "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
+    ]))
+    sincronizar_carteira_com_historico()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 Alocação Tática Dinâmica & Metas (TAA)")
@@ -1173,15 +1156,16 @@ except Exception:
     hicp_v = 2.1
 
 m50_x, m200_x, rsi_x = 0.0, 0.0, 50.0
-if not dados.empty and 'XDEQ.DE' in dados.columns:
-    s_x = dados['XDEQ.DE'].dropna()
-    if len(s_x) >= 50:
-        m50_x = float(s_x.tail(50).mean())
-        m200_x = float(s_x.tail(200).mean()) if len(s_x) >= 200 else m50_x
-        d_x = s_x.diff()
-        g_x = float(d_x.where(d_x > 0, 0).tail(14).mean())
-        l_x = float((-d_x.where(d_x < 0, 0)).tail(14).mean())
-        rsi_x = 100 - (100 / (1 + (g_x / l_x))) if l_x > 0 else 50.0
+if 'dados' in globals() and isinstance(dados, pd.DataFrame) and not dados.empty:
+    if 'XDEQ.DE' in dados.columns:
+        s_x = dados['XDEQ.DE'].dropna()
+        if len(s_x) >= 50:
+            m50_x = float(s_x.tail(50).mean())
+            m200_x = float(s_x.tail(200).mean()) if len(s_x) >= 200 else m50_x
+            d_x = s_x.diff()
+            g_x = float(d_x.where(d_x > 0, 0).tail(14).mean())
+            l_x = float((-d_x.where(d_x < 0, 0)).tail(14).mean())
+            rsi_x = 100 - (100 / (1 + (g_x / l_x))) if l_x > 0 else 50.0
 
 if hicp_v > 3.5 or (m50_x < m200_x and m50_x > 0):
     rec_prof_name = "Defensivo"
@@ -1215,23 +1199,20 @@ if st.sidebar.button(f"⚡ Aplicar Sugestão ({rec_prof_name})", use_container_w
     sincronizar_chaves_carteira()
     st.rerun()
 
-if 'historico_compras' not in st.session_state:
-    st.session_state['historico_compras'] = pd.DataFrame(columns=[
-        "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
-    ])
-
-sincronizar_carteira_com_historico()
-
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔒 Gestão de Dados & Privacidade (GitHub)")
 st.sidebar.caption("Os dados pessoais permanecem apenas na memória temporária da sua sessão.")
 
 with st.sidebar.expander("📂 Importar / Exportar Planilha Excel (.xlsx)", expanded=False):
-    st.markdown("**1. Importar Carteira de Planilha Excel**")
-    uploaded_file = st.file_uploader("Selecione o ficheiro Excel (.xlsx):", type=["xlsx"], key="upl_excel_sidebar")
-    if uploaded_file is not None:
-        if st.button("📥 Processar Importação do Excel", use_container_width=True, key="btn_proc_excel_side"):
-            sucesso_imp, msg_imp = processar_importacao_excel(uploaded_file.getvalue())
+    st.markdown("**1. Importar Planilha de Carteira (.xlsx)**")
+    file_upload = st.file_uploader(
+        "Carregar ficheiro Excel com Historico_Lotes e Carteira_Geral:",
+        type=["xlsx"],
+        key="uploader_excel_sidebar"
+    )
+    if file_upload is not None:
+        if st.button("📥 Processar Importação Excel", use_container_width=True, key="btn_imp_excel_sidebar"):
+            sucesso_imp, msg_imp = processar_importacao_excel(file_upload.getvalue())
             if sucesso_imp:
                 st.success(msg_imp)
                 st.rerun()
@@ -1250,40 +1231,37 @@ with st.sidebar.expander("📂 Importar / Exportar Planilha Excel (.xlsx)", expa
         file_name=f"Carteira_ETFs_XTB_{datetime.now().strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
-        key="btn_exp_excel_side"
+        key="btn_exp_excel_sidebar"
     )
 
     st.markdown("---")
     st.markdown("**3. Modelo / Template em Branco**")
-    st.caption("Descarregue o modelo oficial pré-formatado para preenchimento offline:")
-    bytes_modelo = gerar_modelo_excel()
+    model_bytes = gerar_modelo_excel()
     st.download_button(
-        label="📄 Descarregar Modelo Excel (.xlsx)",
-        data=bytes_modelo,
+        label="📄 Descarregar Planilha Modelo (.xlsx)",
+        data=model_bytes,
         file_name="Modelo_Carteira_ETFs_XTB.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
-        key="btn_model_excel_side"
+        key="btn_model_excel_sidebar"
     )
 
 st.sidebar.markdown("**Sincronização das Abas:**")
-if st.sidebar.button("🔄 Sincronizar Cotas (Histórico -> Carteira)", use_container_width=True, key="btn_sync_side"):
+if st.sidebar.button("🔄 Sincronizar Cotas (Histórico -> Carteira)", use_container_width=True, key="btn_sync_sidebar"):
     sincronizar_carteira_com_historico()
-    st.success("Cotas sincronizadas com sucesso!")
+    st.success("🟢 Cotas sincronizadas com sucesso!")
     st.rerun()
 
 st.sidebar.markdown("**Limpeza de Dados Pessoais (Reset de Segurança):**")
-if st.sidebar.button("🗑️ Limpar Todos os Dados da Sessão", use_container_width=True, key="btn_reset_side"):
+if st.sidebar.button("🗑️ Limpar Todos os Dados da Sessão", use_container_width=True, key="btn_reset_sidebar"):
     limpar_dados_sessao()
-    st.success("Todos os dados foram eliminados da sessão. Cotações de mercado restauradas.")
+    st.success("🟢 Sessão limpa com sucesso!")
     st.rerun()
 
 GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", ""))
 GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
 APP_DOMAIN = st.secrets.get("APP_DOMAIN", os.getenv("APP_DOMAIN", "etf-xtb-alerta.streamlit.app"))
 app_domain = APP_DOMAIN
-
-
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Análise Técnica & Relatório (ETFs)",
     "📊 Rendimentos & Performance de Aportes",
@@ -1293,7 +1271,9 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🏛️ Relatório Fiscal & Apuração IRS / IRPF"
 ])
 
-
+# =========================================================
+# TAB 1: ANÁLISE TÉCNICA E RELATÓRIO
+# =========================================================
 with tab1:
     st.subheader("📈 Análise Técnica, Indicadores & Tendência de Mercado")
     etfs_selecionados = list(ETF_MAP.keys())
@@ -1526,7 +1506,9 @@ with tab1:
                 else:
                     st.warning(msg)
 
-
+# =========================================================
+# TAB 2: RENDIMENTOS & PERFORMANCE DE APORTES
+# =========================================================
 with tab2:
     st.subheader("📊 Histórico de Aportes, Rendimentos & Performance da Carteira")
     st.caption("Acompanhamento de P&L por Lotes de Compra, Preço Médio Ponderado e Distribuição de Capital.")
@@ -1841,7 +1823,9 @@ with tab2:
                     else:
                         st.error(f"❌ {msg}")
 
-
+# =========================================================
+# TAB 3: ANÁLISE CAMBIAL & PROJEÇÕES
+# =========================================================
 with tab3:
     st.subheader("💱 Análise Cambial, VET & Projeções de Câmbio")
 
@@ -2204,7 +2188,11 @@ with tab3:
                 else:
                     st.warning(msg)
 
+# Botão de Download Histórico
 
+# =========================================================
+# TAB 4: CALCULADORA DE REBALANCEAMENTO POR NOVO APORTE
+# =========================================================
 with tab4:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
     st.info(f"ℹ **Metadados de Auditoria & Rastreabilidade:**** Atualizado em: {data_hora_atual} UTC | Corretora XTB (Cotas Inteiras) | Trava de Risco (+5.0 pp) | Filtro de Sinais Técnicos")
@@ -2449,7 +2437,9 @@ with tab4:
                     else:
                         st.warning(msg)
 
-
+# =========================================================
+# TAB 5: GESTÃO ANUAL DE SAQUE & REEQUILÍBRIO UCITS
+# =========================================================
 with tab5:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
     st.info(f"ℹ **Metadados de Auditoria & Rastreabilidade:**** Atualizado em: {data_hora_atual} UTC | API Eurostat HICP | Versão: v3.5 (Fase 3 Completa - Fichas Técnicas & Proteção de Fundo)")
@@ -2817,6 +2807,11 @@ with tab5:
                         st.warning(msg)
 
 
+# Botão de Download Histórico
+
+# =========================================================
+# TAB 6: RELATÓRIO FISCAL & APURAÇÃO IRS / IRPF
+# =========================================================
 with tab6:
     data_hora_atual = datetime.now().strftime("%d/%m/%Y %H:%M")
     st.info(f"ℹ **Metadados de Auditoria & Rastreabilidade:**** Atualizado em: {data_hora_atual} UTC | API Frankfurter (Cotações Históricas BCE EUR/BRL) | Suporte Fiscal Portugal (Anexo G) & Brasil (GCAP)")
@@ -3031,8 +3026,6 @@ with tab6:
 
 
 st.markdown("---")
-
-
 if not dados.empty:
     csv = dados.to_csv().encode('utf-8')
     st.download_button(
@@ -3041,5 +3034,3 @@ if not dados.empty:
         file_name="etf_xtb_historico.csv",
         mime="text/csv"
     )
-
-
