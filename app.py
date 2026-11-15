@@ -1028,6 +1028,28 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
 
 st.set_page_config(page_title="ETF Tracker, Rebalancer & Análise Cambial XTB", layout="wide", page_icon="📊 ")
 
+
+def aplicar_perfil_taa(rec_i, rec_x, rec_p):
+    """Callback: atualiza metas e widgets antes da reconstrução da interface."""
+    carteira = st.session_state.get('carteira_etfs')
+    if not isinstance(carteira, dict):
+        carteira = copy.deepcopy(padroes_pos_global)
+        st.session_state['carteira_etfs'] = carteira
+
+    metas = {"IBCI": float(rec_i), "XDEQ": float(rec_x), "PRAB": float(rec_p)}
+    for sigla, percentual in metas.items():
+        if sigla not in carteira:
+            carteira[sigla] = copy.deepcopy(padroes_pos_global[sigla])
+        carteira[sigla]['alvo'] = percentual / 100.0
+        carteira[sigla]['teto'] = (percentual + 5.0) / 100.0
+
+    # Callbacks são executados antes da criação dos widgets neste rerun.
+    st.session_state['in_taa_ibci'] = metas['IBCI']
+    st.session_state['in_taa_xdeq'] = metas['XDEQ']
+    st.session_state['in_taa_prab'] = metas['PRAB']
+    sincronizar_chaves_carteira()
+
+
 # A carteira deve existir antes da criação dos botões de perfis táticos.
 if 'carteira_etfs' not in st.session_state:
     st.session_state['carteira_etfs'] = copy.deepcopy(padroes_pos_global)
@@ -1096,44 +1118,32 @@ st.sidebar.markdown("**⚡ Perfis Táticos Pré-Definidos:**")
 
 col_p1, col_p2, col_p3 = st.sidebar.columns(3)
 
-if col_p1.button("🛡️ Defensivo", help="50% IBCI / 25% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_def"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.50
-    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.55
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.30
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
-    st.session_state['in_taa_ibci'] = 50.0
-    st.session_state['in_taa_xdeq'] = 25.0
-    st.session_state['in_taa_prab'] = 25.0
-    sincronizar_chaves_carteira()
-    st.rerun()
+col_p1.button(
+    "🛡️ Defensivo",
+    help="50% IBCI / 25% XDEQ / 25% PRAB",
+    use_container_width=True,
+    key="btn_prof_def",
+    on_click=aplicar_perfil_taa,
+    args=(50.0, 25.0, 25.0),
+)
 
-if col_p2.button("⚖️ Equilibrado", help="45% IBCI / 30% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_eq"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.45
-    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.50
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.30
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.35
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
-    st.session_state['in_taa_ibci'] = 45.0
-    st.session_state['in_taa_xdeq'] = 30.0
-    st.session_state['in_taa_prab'] = 25.0
-    sincronizar_chaves_carteira()
-    st.rerun()
+col_p2.button(
+    "⚖️ Equilibrado",
+    help="45% IBCI / 30% XDEQ / 25% PRAB",
+    use_container_width=True,
+    key="btn_prof_eq",
+    on_click=aplicar_perfil_taa,
+    args=(45.0, 30.0, 25.0),
+)
 
-if col_p3.button("🚀 Expansão", help="35% IBCI / 40% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_exp"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.35
-    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.40
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.40
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.45
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
-    st.session_state['in_taa_ibci'] = 35.0
-    st.session_state['in_taa_xdeq'] = 40.0
-    st.session_state['in_taa_prab'] = 25.0
-    sincronizar_chaves_carteira()
-    st.rerun()
+col_p3.button(
+    "🚀 Expansão",
+    help="35% IBCI / 40% XDEQ / 25% PRAB",
+    use_container_width=True,
+    key="btn_prof_exp",
+    on_click=aplicar_perfil_taa,
+    args=(35.0, 40.0, 25.0),
+)
 
 try:
     hicp_v = float(obter_hicp_oficial_eurostat())
@@ -1175,18 +1185,13 @@ st.sidebar.markdown("**💡 Diagnóstico Inteligente (Smart TAA):**")
 
 st.sidebar.info(f"**Sugestão Tática:** {rec_icon} **{rec_prof_name}** ({int(rec_i)}% IBCI / {int(rec_x)}% XDEQ / {int(rec_p)}% PRAB)\n\n*Motivo:* {rec_motivo}")
 
-if st.sidebar.button(f"⚡ Aplicar Sugestão ({rec_prof_name})", use_container_width=True, key="btn_apply_smart_taa"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = rec_i / 100.0
-    st.session_state['carteira_etfs']['IBCI']['teto'] = (rec_i + 5.0) / 100.0
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = rec_x / 100.0
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = (rec_x + 5.0) / 100.0
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = rec_p / 100.0
-    st.session_state['carteira_etfs']['PRAB']['teto'] = (rec_p + 5.0) / 100.0
-    st.session_state['in_taa_ibci'] = rec_i
-    st.session_state['in_taa_xdeq'] = rec_x
-    st.session_state['in_taa_prab'] = rec_p
-    sincronizar_chaves_carteira()
-    st.rerun()
+st.sidebar.button(
+    f"⚡ Aplicar Sugestão ({rec_prof_name})",
+    use_container_width=True,
+    key="btn_apply_smart_taa",
+    on_click=aplicar_perfil_taa,
+    args=(rec_i, rec_x, rec_p),
+)
 
 dados = carregar_dados_etfs(tickers_etf, periodo)
 
