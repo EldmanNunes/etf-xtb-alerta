@@ -3170,6 +3170,13 @@ with tab6:
     if not df_v_proc.empty:
         colunas_obrigatorias = ["Data Compra", "Data Venda", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)"]
         validacao = df_v_proc[colunas_obrigatorias].copy()
+        # modificado aqui
+        st.write("COLUNAS DE VALIDACAO:", validacao.columns.tolist())
+        comissao_debug = pd.to_numeric(validacao.get("Comissão (€)", pd.Series(index=validacao.index, dtype=float)), errors="coerce")
+        st.write("COMISSAO DEBUG:")
+        st.write(comissao_debug)
+        # terminei aqui a modificação
+
         datas_compra = pd.to_datetime(validacao["Data Compra"], dayfirst=True, errors="coerce")
         datas_venda = pd.to_datetime(validacao["Data Venda"], dayfirst=True, errors="coerce")
         volumes = pd.to_numeric(validacao["Volume (Cotas)"], errors="coerce")
