@@ -1,8 +1,8 @@
 """
 =============================================================================
-📊 ETF Tracker, Rebalancer & Análise Cambial XTB — Versão v4.10 (app-v41.py)
+📊 ETF Tracker, Rebalancer & Análise Cambial XTB — Versão v4.11 (app-v41-corrigido-v3.py)
 =============================================================================
-Data de Atualização: 15/11/2026
+Data de Atualização: 15/11/2026 — Etapa 2: livro-razão e saldo líquido de cotas
 Descrição: Aplicação completa de gestão patrimonial, rebalanceamento tático, 
            gestão de saques defensivos e apuração fiscal para investidores UCITS.
 
@@ -98,40 +98,34 @@ def update_carteira_state(sigla, field, widget_key):
     sincronizar_chaves_carteira()
 
 def sincronizar_carteira_com_historico():
-    """Atualiza as cotas a partir dos lotes de compra válidos.
-
-    Linhas incompletas/inválidas permanecem no histórico para correção pelo
-    utilizador, mas não entram nos totais da carteira.
-    """
+    """Reconstrói as cotas líquidas a partir dos lotes e das vendas aplicáveis."""
     if not isinstance(st.session_state.get('carteira_etfs'), dict):
         st.session_state['carteira_etfs'] = copy.deepcopy(padroes_pos_global)
 
-    df_h = st.session_state.get('historico_compras')
-    totais = {}
-    if isinstance(df_h, pd.DataFrame) and not df_h.empty:
-        colunas = {"Sigla", "Volume (Cotas)", "Preço Abertura (€)"}
-        if colunas.issubset(df_h.columns):
-            df_temp = df_h.copy()
-            df_temp['Sigla'] = df_temp['Sigla'].astype(str).str.strip().str.upper()
-            df_temp['Vol_Num'] = pd.to_numeric(df_temp['Volume (Cotas)'], errors='coerce')
-            df_temp['Preco_Num'] = pd.to_numeric(df_temp['Preço Abertura (€)'], errors='coerce')
-            df_temp['Data_Num'] = pd.to_datetime(df_temp.get('Data Compra', pd.Series(index=df_temp.index, dtype=object)), dayfirst=True, errors='coerce')
-            validas = (
-                df_temp['Sigla'].isin(["IBCI", "XDEQ", "PRAB"])
-                & df_temp['Data_Num'].notna()
-                & df_temp['Vol_Num'].notna()
-                & df_temp['Preco_Num'].notna()
-                & (df_temp['Vol_Num'] > 0)
-                & (df_temp['Preco_Num'] > 0)
-                & (df_temp['Vol_Num'] % 1 == 0)
-            )
-            totais = df_temp.loc[validas].groupby('Sigla')['Vol_Num'].sum().to_dict()
+    df_lotes, df_auditoria = calcular_posicoes_liquidas(
+        st.session_state.get('historico_compras'),
+        st.session_state.get('historico_vendas')
+    )
+    st.session_state['auditoria_livro_razao'] = df_auditoria
 
+    totais = {}
+    if not df_lotes.empty:
+        totais = df_lotes.groupby('Sigla')['Cotas Disponíveis'].sum().to_dict()
+
+    posicoes_alteradas = False
     for sigla in ["IBCI", "XDEQ", "PRAB"]:
         if sigla in st.session_state['carteira_etfs']:
-            st.session_state['carteira_etfs'][sigla]['cotas'] = int(totais.get(sigla, 0))
+            novo_saldo = int(totais.get(sigla, 0))
+            saldo_anterior = int(st.session_state['carteira_etfs'][sigla].get('cotas', 0) or 0)
+            if novo_saldo != saldo_anterior:
+                posicoes_alteradas = True
+            st.session_state['carteira_etfs'][sigla]['cotas'] = novo_saldo
+
+    if posicoes_alteradas:
+        st.session_state.pop("saque_data", None)
 
     sincronizar_chaves_carteira()
+
 
 def sincronizar_chaves_carteira():
     for sigla in ["IBCI", "XDEQ", "PRAB"]:
@@ -165,42 +159,57 @@ def carregar_dados_etfs(tickers_list, period):
     return df
 
 def obter_rentabilidade_global_historico():
-    """Calcula o resumo consolidado de custos, valor de mercado e P&L líquido
-    a partir de st.session_state['historico_compras']."""
+    """Calcula custo e valor de mercado apenas das cotas ainda em carteira.
+
+    Se algum lote aberto não tiver custo de aquisição completo, o lucro é
+    considerado não confiável e retorna zero para bloquear saques baseados
+    em lucro não comprovado.
+    """
+    df_lotes, _ = calcular_posicoes_liquidas(
+        st.session_state.get('historico_compras'),
+        st.session_state.get('historico_vendas')
+    )
     custo_total = 0.0
     valor_mercado_total = 0.0
-    if 'historico_compras' in st.session_state and isinstance(st.session_state['historico_compras'], pd.DataFrame):
-        df_h = st.session_state['historico_compras']
-        if not df_h.empty and 'Sigla' in df_h.columns:
-            for _, r in df_h.iterrows():
-                sigla = str(r.get('Sigla', '')).strip().upper()
-                vol = pd.to_numeric(r.get('Volume (Cotas)', 0), errors='coerce')
-                vol_num = float(vol) if pd.notnull(vol) else 0.0
-                p_abert = pd.to_numeric(r.get('Preço Abertura (€)', 0), errors='coerce')
-                p_abert_num = float(p_abert) if pd.notnull(p_abert) else 0.0
-                comiss = pd.to_numeric(r.get('Comissão (€)', 0), errors='coerce')
-                comiss_num = float(comiss) if pd.notnull(comiss) else 0.0
+    custo_incompleto = False
 
-                p_mkt = 0.0
-                if 'carteira_etfs' in st.session_state and sigla in st.session_state['carteira_etfs']:
-                    p_mkt = float(st.session_state['carteira_etfs'][sigla].get('p_venda', p_abert_num))
-                else:
-                    p_mkt = p_abert_num
+    if not df_lotes.empty:
+        for _, lote in df_lotes.iterrows():
+            quantidade = int(lote.get("Cotas Disponíveis", 0) or 0)
+            if quantidade <= 0:
+                continue
+            sigla = str(lote.get("Sigla", "")).strip().upper()
+            info = st.session_state.get('carteira_etfs', {}).get(sigla, {})
+            preco_mercado = pd.to_numeric(info.get('p_venda'), errors='coerce')
+            custo_remanescente = pd.to_numeric(lote.get("Custo Remanescente (€)"), errors='coerce')
 
-                custo_lote = (vol_num * p_abert_num) + comiss_num
-                val_mkt_lote = vol_num * p_mkt
+            if pd.isna(preco_mercado) or preco_mercado <= 0:
+                custo_incompleto = True
+            else:
+                valor_mercado_total += quantidade * float(preco_mercado)
 
-                custo_total += custo_lote
-                valor_mercado_total += val_mkt_lote
+            if pd.isna(custo_remanescente):
+                custo_incompleto = True
+            else:
+                custo_total += float(custo_remanescente)
 
     lucro_neto = valor_mercado_total - custo_total
-    retorno_pct = (lucro_neto / custo_total * 100.0) if custo_total > 0 else 0.0
+    confiavel = not custo_incompleto
+    if not confiavel:
+        # Não permitir que custos desconhecidos gerem lucro aparente para saques.
+        lucro_neto = 0.0
+
+    retorno_pct = (lucro_neto / custo_total * 100.0) if custo_total > 0 and confiavel else 0.0
     return {
         "custo_total": custo_total,
         "valor_mercado_total": valor_mercado_total,
         "lucro_neto": lucro_neto,
-        "retorno_pct": retorno_pct
+        "retorno_pct": retorno_pct,
+        "confiavel": confiavel,
+        "custo_incompleto": custo_incompleto,
+        "tipo_resultado": "não realizado das posições ainda abertas"
     }
+
 
 def _normalizar_data_registo(valor):
     """Normaliza datas válidas sem inventar uma data para valores ausentes."""
@@ -327,7 +336,7 @@ def exportar_carteira_excel_full(df_lotes, carteira_dict, df_vendas=None):
         if df_vendas is not None and not df_vendas.empty:
             df_vendas.to_excel(writer, sheet_name='Historico_Vendas', index=False)
         else:
-            pd.DataFrame(columns=["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"]).to_excel(writer, sheet_name='Historico_Vendas', index=False)
+            pd.DataFrame(columns=["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)", "Estado"]).to_excel(writer, sheet_name='Historico_Vendas', index=False)
 
         rows_c = []
         if carteira_dict:
@@ -371,7 +380,8 @@ def processar_importacao_excel(file_bytes):
                     st.session_state['carteira_etfs'][sigla]['p_compra'] = float(pc) if pd.notnull(pc) else 0.0
                     st.session_state['carteira_etfs'][sigla]['p_venda'] = float(pv) if pd.notnull(pv) else 0.0
 
-        if 'Historico_Lotes' in xls.sheet_names:
+        if 'Historico_Lotes' in xls.sheet_names or 'Historico_Vendas' in xls.sheet_names:
+            st.session_state.pop("saque_data", None)
             sincronizar_carteira_com_historico()
         else:
             sincronizar_chaves_carteira()
@@ -385,8 +395,10 @@ def limpar_dados_sessao():
         "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
     ])
     st.session_state['historico_vendas'] = pd.DataFrame(columns=[
-        "ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"
+        "ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)", "Estado"
     ])
+    st.session_state.pop("saque_data", None)
+    st.session_state.pop("auditoria_livro_razao", None)
     if 'editor_lotes_compras' in st.session_state:
         del st.session_state['editor_lotes_compras']
     if 'editor_lotes_vendas' in st.session_state:
@@ -767,16 +779,30 @@ def obter_taxa_cambio_historica(data_str, base='EUR', alvo='BRL'):
     return 6.12
 
 def sanitizar_df_vendas(df):
-    """Normaliza vendas sem completar campos ausentes com valores inventados."""
-    colunas = ["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"]
+    """Normaliza vendas e distingue operações pendentes das executadas.
+
+    Históricos antigos sem a coluna Estado ficam em Revisão, sem afetar o saldo,
+    até o utilizador confirmar a execução. Novas linhas sem estado ficam pendentes.
+    """
+    colunas = [
+        "ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla",
+        "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)",
+        "Comissão (€)", "Estado"
+    ]
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return pd.DataFrame(columns=colunas)
 
     df_out = df.copy()
+    tinha_estado = "Estado" in df_out.columns
     numericas = ["Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"]
     for coluna in colunas:
         if coluna not in df_out.columns:
-            df_out[coluna] = np.nan if coluna in numericas else ""
+            if coluna in numericas:
+                df_out[coluna] = np.nan
+            elif coluna == "Estado":
+                df_out[coluna] = "Revisão" if not tinha_estado else "Pendente"
+            else:
+                df_out[coluna] = ""
     df_out = df_out[colunas].copy()
 
     texto_cols = ["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla"]
@@ -794,19 +820,226 @@ def sanitizar_df_vendas(df):
     df_out.loc[df_out["Preço Compra (€)"] <= 0, "Preço Compra (€)"] = np.nan
     df_out.loc[df_out["Preço Venda (€)"] <= 0, "Preço Venda (€)"] = np.nan
     df_out.loc[df_out["Comissão (€)"] < 0, "Comissão (€)"] = np.nan
+
+    estados_validos = {
+        "executada": "Executada", "executado": "Executada",
+        "executed": "Executada", "realizada": "Executada",
+        "realizado": "Executada", "pendente": "Pendente",
+        "pending": "Pendente", "revisao": "Revisão",
+        "revisão": "Revisão"
+    }
+    df_out["Estado"] = (
+        df_out["Estado"].fillna("Pendente").astype(str).str.strip().str.lower()
+        .map(estados_validos).fillna("Revisão")
+    )
     return df_out.reset_index(drop=True)
+
+
+def calcular_posicoes_liquidas(df_compras, df_vendas):
+    """Calcula saldos por lote usando identificação específica.
+
+    Chave do lote: ID Posição + Data Compra + Sigla.
+    Uma venda só reduz o saldo quando encontra exatamente esse lote e não
+    excede as cotas ainda disponíveis. Vendas sem correspondência ou
+    excedentes ficam na auditoria e não alteram a posição.
+    """
+    compras = sanitizar_df_historico(df_compras)
+    vendas = sanitizar_df_vendas(df_vendas)
+
+    colunas_lotes = [
+        "ID Posição", "Data Compra", "ETF", "Sigla", "Cotas Compradas",
+        "Cotas Vendidas", "Cotas Disponíveis", "Preço Abertura (€)",
+        "Comissão Compra (€)", "Custo Total (€)", "Custo Remanescente (€)",
+        "Custo Unitário Efetivo (€)"
+    ]
+    colunas_auditoria = [
+        "Linha Venda", "ID Posição", "Data Compra", "Data Venda", "Sigla",
+        "Cotas Informadas", "Cotas Aplicadas", "Estado Operação", "Estado", "Motivo"
+    ]
+
+    lotes = {}
+    if not compras.empty:
+        for idx, row in compras.iterrows():
+            ident = _normalizar_identificador(row.get("ID Posição", ""))
+            sigla = str(row.get("Sigla", "")).strip().upper()
+            dt_compra = pd.to_datetime(row.get("Data Compra", ""), dayfirst=True, errors="coerce")
+            volume = pd.to_numeric(row.get("Volume (Cotas)"), errors="coerce")
+            if (not ident or sigla not in ["IBCI", "XDEQ", "PRAB"]
+                    or pd.isna(dt_compra) or pd.isna(volume)
+                    or volume <= 0 or float(volume).is_integer() is False):
+                continue
+
+            data_key = dt_compra.strftime("%Y-%m-%d")
+            chave = (ident, data_key, sigla)
+            preco = pd.to_numeric(row.get("Preço Abertura (€)"), errors="coerce")
+            comissao = pd.to_numeric(row.get("Comissão (€)"), errors="coerce")
+            custo_linha_valido = pd.notna(preco) and preco > 0 and pd.notna(comissao) and comissao >= 0
+            lote = lotes.setdefault(chave, {
+                "ID Posição": ident,
+                "Data Compra": dt_compra.strftime("%d/%m/%Y"),
+                "ETF": str(row.get("ETF", "")),
+                "Sigla": sigla,
+                "Cotas Compradas": 0,
+                "_custo_total": 0.0,
+                "_custo_completo": True,
+                "_preco_volume": 0.0,
+                "_volume_com_preco": 0,
+                "_qtd_linhas": 0
+            })
+            lote["_qtd_linhas"] += 1
+            lote["Cotas Compradas"] += int(volume)
+            if custo_linha_valido:
+                custo_linha = int(volume) * float(preco) + float(comissao)
+                lote["_custo_total"] += custo_linha
+                lote["_preco_volume"] += int(volume) * float(preco)
+                lote["_volume_com_preco"] += int(volume)
+            else:
+                lote["_custo_completo"] = False
+
+    # Processar vendas por data, mantendo a ordem original para vendas no mesmo dia.
+    vendas_ordenadas = []
+    if not vendas.empty:
+        for idx, row in vendas.iterrows():
+            dt_venda = pd.to_datetime(row.get("Data Venda", ""), dayfirst=True, errors="coerce")
+            vendas_ordenadas.append((dt_venda if pd.notna(dt_venda) else pd.Timestamp.max, idx, row))
+    vendas_ordenadas.sort(key=lambda item: (item[0], item[1]))
+
+    auditoria = []
+    for _, idx, row in vendas_ordenadas:
+        ident = _normalizar_identificador(row.get("ID Posição", ""))
+        sigla = str(row.get("Sigla", "")).strip().upper()
+        dt_compra = pd.to_datetime(row.get("Data Compra", ""), dayfirst=True, errors="coerce")
+        dt_venda = pd.to_datetime(row.get("Data Venda", ""), dayfirst=True, errors="coerce")
+        volume = pd.to_numeric(row.get("Volume (Cotas)"), errors="coerce")
+        estado, motivo, aplicado = "Rejeitada", "", 0
+        estado_operacao = str(row.get("Estado", "Executada")).strip().title()
+
+        if estado_operacao == "Revisão":
+            estado = "Revisão"
+            motivo = "Registo antigo sem estado de execução; confirme se a venda foi realmente executada."
+        elif estado_operacao == "Pendente":
+            estado = "Pendente"
+            motivo = "Ordem ainda não confirmada como executada na corretora."
+        elif estado_operacao != "Executada":
+            estado = "Rejeitada"
+            motivo = "Estado da operação desconhecido."
+        elif not ident or sigla not in ["IBCI", "XDEQ", "PRAB"] or pd.isna(dt_compra) or pd.isna(dt_venda):
+            motivo = "Identificador, ETF ou data ausente/inválida."
+        elif dt_venda < dt_compra:
+            motivo = "A data da venda é anterior à data da compra."
+        elif pd.isna(volume) or volume <= 0 or float(volume).is_integer() is False:
+            motivo = "Quantidade vendida inválida."
+        else:
+            chave = (ident, dt_compra.strftime("%Y-%m-%d"), sigla)
+            lote = lotes.get(chave)
+            if lote is None:
+                motivo = "Não foi encontrado lote de compra com o mesmo ID, data e ETF."
+            else:
+                disponivel = int(lote["Cotas Compradas"] - lote.get("_cotas_vendidas", 0))
+                quantidade = int(volume)
+                preco_compra_informado = pd.to_numeric(row.get("Preço Compra (€)"), errors="coerce")
+                preco_compra_lote = (
+                    lote["_preco_volume"] / lote["_volume_com_preco"]
+                    if lote["_volume_com_preco"] > 0 else np.nan
+                )
+                if quantidade > disponivel:
+                    motivo = f"Venda excede o saldo do lote: {disponivel} cota(s) disponível(is), {quantidade} informada(s)."
+                elif (
+                    lote.get("_qtd_linhas", 0) == 1
+                    and pd.notna(preco_compra_informado)
+                    and pd.notna(preco_compra_lote)
+                    and abs(float(preco_compra_informado) - float(preco_compra_lote)) > 0.01
+                ):
+                    motivo = (
+                        "Preço de compra informado na venda diverge do preço médio "
+                        "do lote de origem; corrigir antes de aplicar."
+                    )
+                else:
+                    lote["_cotas_vendidas"] = lote.get("_cotas_vendidas", 0) + quantidade
+                    aplicado = quantidade
+                    estado = "Aplicada"
+                    motivo = "Venda associada ao lote e descontada do saldo."
+
+        auditoria.append({
+            "Linha Venda": int(idx) + 1,
+            "ID Posição": ident,
+            "Data Compra": _normalizar_data_registo(row.get("Data Compra", "")),
+            "Data Venda": _normalizar_data_registo(row.get("Data Venda", "")),
+            "Sigla": sigla,
+            "Cotas Informadas": int(volume) if pd.notna(volume) and volume > 0 and float(volume).is_integer() else np.nan,
+            "Cotas Aplicadas": aplicado,
+            "Estado Operação": estado_operacao,
+            "Estado": estado,
+            "Motivo": motivo
+        })
+
+    saida_lotes = []
+    for lote in lotes.values():
+        compradas = int(lote["Cotas Compradas"])
+        vendidas = int(lote.get("_cotas_vendidas", 0))
+        disponiveis = compradas - vendidas
+        custo_total = lote["_custo_total"] if lote["_custo_completo"] else np.nan
+        custo_remanescente = (
+            custo_total * (disponiveis / compradas)
+            if pd.notna(custo_total) and compradas > 0 else np.nan
+        )
+        preco_medio = (
+            (lote["_preco_volume"] / lote["_volume_com_preco"])
+            if lote["_volume_com_preco"] > 0 else np.nan
+        )
+        saida_lotes.append({
+            "ID Posição": lote["ID Posição"],
+            "Data Compra": lote["Data Compra"],
+            "ETF": lote["ETF"],
+            "Sigla": lote["Sigla"],
+            "Cotas Compradas": compradas,
+            "Cotas Vendidas": vendidas,
+            "Cotas Disponíveis": disponiveis,
+            "Preço Abertura (€)": preco_medio,
+            "Comissão Compra (€)": (
+                lote["_custo_total"] - lote["_preco_volume"]
+                if lote["_custo_completo"] else np.nan
+            ),
+            "Custo Total (€)": custo_total,
+            "Custo Remanescente (€)": custo_remanescente,
+            "Custo Unitário Efetivo (€)": (
+                custo_remanescente / disponiveis
+                if pd.notna(custo_remanescente) and disponiveis > 0 else np.nan
+            )
+        })
+
+    return (
+        pd.DataFrame(saida_lotes, columns=colunas_lotes),
+        pd.DataFrame(auditoria, columns=colunas_auditoria)
+    )
+
+
+def _converter_preco_ficha(valor):
+    """Converte preços das fichas de saque sem transformar N/D em zero."""
+    if valor is None or pd.isna(valor):
+        return np.nan
+    if isinstance(valor, str):
+        texto = valor.strip().replace("€", "").strip()
+        if texto.upper().startswith("N/D") or texto == "":
+            return np.nan
+        texto = texto.replace(".", "").replace(",", ".")
+        return pd.to_numeric(texto, errors="coerce")
+    return pd.to_numeric(valor, errors="coerce")
+
 
 def obter_df_vendas_demo():
     return pd.DataFrame([
         {
-            "ID Posição": "1002849120", "Data Compra": "15/01/2025", "Data Venda": "14/11/2026",
+            "ID Posição": "1002849120", "Data Compra": "15/12/2025", "Data Venda": "14/11/2026",
             "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 5,
-            "Preço Compra (€)": 225.50, "Preço Venda (€)": 230.10, "Comissão (€)": 0.0
+            "Preço Compra (€)": 230.17, "Preço Venda (€)": 230.10, "Comissão (€)": 0.0,
+            "Estado": "Executada"
         },
         {
-            "ID Posição": "2280842619", "Data Compra": "10/02/2025", "Data Venda": "14/11/2026",
+            "ID Posição": "1002849121", "Data Compra": "10/01/2026", "Data Venda": "14/11/2026",
             "ETF": "XDEQ - World Quality", "Sigla": "XDEQ", "Volume (Cotas)": 10,
-            "Preço Compra (€)": 75.20, "Preço Venda (€)": 81.75, "Comissão (€)": 0.0
+            "Preço Compra (€)": 81.82, "Preço Venda (€)": 81.75, "Comissão (€)": 0.0,
+            "Estado": "Executada"
         }
     ])
 
@@ -1210,6 +1443,9 @@ if 'historico_compras' not in st.session_state:
     st.session_state['historico_compras'] = pd.DataFrame(columns=[
         "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
     ])
+
+if 'historico_vendas' not in st.session_state or not isinstance(st.session_state['historico_vendas'], pd.DataFrame):
+    st.session_state['historico_vendas'] = sanitizar_df_vendas(obter_df_vendas_demo())
 
 sincronizar_carteira_com_historico()
 
@@ -1665,6 +1901,7 @@ with tab2:
     df_editado_san = sanitizar_df_historico(df_editado)
     if not df_editado_san.equals(st.session_state['historico_compras']):
         st.session_state['historico_compras'] = df_editado_san
+        st.session_state.pop("saque_data", None)
         sincronizar_carteira_com_historico()
         st.rerun()
 
@@ -2534,6 +2771,11 @@ with tab5:
         
         info_pnl = obter_rentabilidade_global_historico()
         lucro_neto_real = info_pnl['lucro_neto']
+        if not info_pnl.get('confiavel', True):
+            st.warning(
+                "Existem lotes abertos sem custo de aquisição completo. "
+                "O modo conservador foi limitado a zero até os custos serem corrigidos."
+            )
         saque_conservador = max(0.0, min(saque_teorico, lucro_neto_real))
         
         modo_sel = modo_override if modo_override is not None else st.session_state.get('modo_saque_sel', '')
@@ -2607,43 +2849,60 @@ with tab5:
             protecao_info = f"Ativos protegidos contra venda em fundo: {', '.join(protegidos_list)}. A venda foi bloqueada nestes ativos para mitigar o risco de sequência de retornos (Sequence of Returns Risk)."
 
         fichas_ordens_xtb = []
-        if 'historico_compras' in st.session_state and isinstance(st.session_state['historico_compras'], pd.DataFrame):
-            df_h_xtb = st.session_state['historico_compras']
-            if not df_h_xtb.empty and 'Sigla' in df_h_xtb.columns:
-                df_sub = df_h_xtb[df_h_xtb['Sigla'] == ativo_venda].copy()
-                if not df_sub.empty:
-                    df_sub['Vol_Num'] = pd.to_numeric(df_sub['Volume (Cotas)'], errors='coerce').fillna(0).astype(int)
-                    df_sub = df_sub[df_sub['Vol_Num'] > 0]
-                    cotas_rem = cotas_venda
-                    for _, r_lote in df_sub.iterrows():
-                        if cotas_rem <= 0:
-                            break
-                        id_pos = str(r_lote.get('ID Posição', '')).strip()
-                        dt_c = str(r_lote.get('Data Compra', '')).strip()
-                        vol_lote = int(r_lote.get('Vol_Num', 0))
-                        p_abert = float(pd.to_numeric(r_lote.get('Preço Abertura (€)', 0), errors='coerce') or 0.0)
-                        
-                        cotas_fechar = min(vol_lote, cotas_rem)
-                        pnl_est = (preco_venda - p_abert) * cotas_fechar
-                        
-                        if cotas_fechar == vol_lote:
-                            st_fecho = f"🔴 Fechar TOTAL ({cotas_fechar} cotas)"
-                        else:
-                            st_fecho = f"🟡 Fechar PARCIAL ({cotas_fechar} de {vol_lote} cotas)"
-                        
-                        fichas_ordens_xtb.append({
-                            "ID Posição XTB": id_pos,
-                            "Data Compra": dt_c,
-                            "ETF": str(r_lote.get('ETF', ativo_venda)),
-                            "Sigla": ativo_venda,
-                            "Cotas Lote": vol_lote,
-                            "Cotas a Liquidar": cotas_fechar,
-                            "Preço Compra (€)": f"€ {fmt_br(p_abert, 2)}",
-                            "Preço Venda (€)": f"€ {fmt_br(preco_venda, 2)}",
-                            "P&L Est. (€)": f"€ {fmt_br(pnl_est, 2, signed=True)}",
-                            "Ação Recomendada na XTB": st_fecho
-                        })
-                        cotas_rem -= cotas_fechar
+        df_lotes_abertos, _ = calcular_posicoes_liquidas(
+            st.session_state.get('historico_compras'),
+            st.session_state.get('historico_vendas')
+        )
+        df_sub = df_lotes_abertos[
+            (df_lotes_abertos['Sigla'] == ativo_venda)
+            & (df_lotes_abertos['Cotas Disponíveis'] > 0)
+        ].copy() if not df_lotes_abertos.empty else pd.DataFrame()
+
+        cotas_rem = int(cotas_venda)
+        for _, r_lote in df_sub.iterrows():
+            if cotas_rem <= 0:
+                break
+            id_pos = str(r_lote.get('ID Posição', '')).strip()
+            dt_c = str(r_lote.get('Data Compra', '')).strip()
+            vol_lote = int(r_lote.get('Cotas Disponíveis', 0))
+            p_abert = pd.to_numeric(r_lote.get('Preço Abertura (€)'), errors='coerce')
+
+            cotas_fechar = min(vol_lote, cotas_rem)
+            pnl_est = (
+                (preco_venda - float(p_abert)) * cotas_fechar
+                if pd.notna(p_abert) and p_abert > 0 else np.nan
+            )
+
+            if cotas_fechar == vol_lote:
+                st_fecho = f"🔴 Fechar TOTAL ({cotas_fechar} cotas)"
+            else:
+                st_fecho = f"🟡 Fechar PARCIAL ({cotas_fechar} de {vol_lote} cotas)"
+
+            fichas_ordens_xtb.append({
+                "ID Posição XTB": id_pos,
+                "Data Compra": dt_c,
+                "ETF": str(r_lote.get('ETF', ativo_venda)),
+                "Sigla": ativo_venda,
+                "Cotas Lote": vol_lote,
+                "Cotas a Liquidar": cotas_fechar,
+                "Preço Compra (€)": (
+                    f"€ {fmt_br(float(p_abert), 2)}"
+                    if pd.notna(p_abert) and p_abert > 0 else "N/D"
+                ),
+                "Preço Venda (€)": f"€ {fmt_br(preco_venda, 2)}",
+                "P&L Est. (€)": (
+                    f"€ {fmt_br(float(pnl_est), 2, signed=True)}"
+                    if pd.notna(pnl_est) else "N/D — custo de aquisição em falta"
+                ),
+                "Ação Recomendada na XTB": st_fecho
+            })
+            cotas_rem -= cotas_fechar
+
+        if cotas_rem > 0:
+            st.warning(
+                f"Não foi possível associar {cotas_rem} cota(s) às posições abertas "
+                f"do ETF {ativo_venda}. Verifique o histórico de compras e vendas."
+            )
 
         st.session_state["saque_data"] = {
             "patrimonio_inicial": patrimonio_inicial,
@@ -2670,6 +2929,9 @@ with tab5:
     if "saque_data" in st.session_state:
         info_pnl_show = obter_rentabilidade_global_historico()
         lucro_neto_disp = info_pnl_show['lucro_neto']
+        st.caption("O resultado apresentado nesta etapa considera apenas posições ainda abertas; ganhos realizados serão consolidados numa etapa posterior.")
+        if not info_pnl_show.get('confiavel', True):
+            st.warning("Lucro não apresentado como confiável: há lotes abertos sem custo de aquisição completo.")
         saque_conserv_disp = max(0.0, min(st.session_state["saque_data"]['saque_teorico'], lucro_neto_disp))
 
         # Check if radio selection changed and re-run calculation dynamically
@@ -2820,31 +3082,31 @@ with tab6:
     st.caption("Cálculo automático de mais-valias e ganhos de capital com conversão cambial nas datas exatas de aquisição e alienação.")
 
     st.markdown("### 1. Histórico de Vendas & Alienações Registadas (xStation 5)")
-    st.caption("Registe ou edite os lotes alienados na XTB. Pode sincronizar automaticamente com o último saque executado na Aba 3.")
+    st.caption("Registe as vendas efetivamente executadas na XTB. As ordens geradas pela Aba 3 entram como pendentes e só afetam a carteira depois de confirmadas como executadas.")
 
     if 'historico_vendas' not in st.session_state or not isinstance(st.session_state['historico_vendas'], pd.DataFrame):
         st.session_state['historico_vendas'] = sanitizar_df_vendas(obter_df_vendas_demo())
 
     col_sync1, col_sync2 = st.columns([2, 1])
     with col_sync1:
-        if st.button("🔄 Sincronizar Vendas Recomendadas da Aba 3 (Gestão de Saque)", use_container_width=True, key="btn_sync_saque_vendas"):
+        if st.button("🔄 Registar Ordens da Aba 3 como Pendentes", use_container_width=True, key="btn_sync_saque_vendas"):
             if 'saque_data' in st.session_state and 'fichas_ordens_xtb' in st.session_state['saque_data']:
                 fichas = st.session_state['saque_data']['fichas_ordens_xtb']
-                dt_venda_str = datetime.now().strftime("%d/%m/%Y")
                 novos_recs = []
                 for f_item in fichas:
-                    p_compra_num = float(f_item['Preço Compra (€)'].replace('€', '').replace('.', '').replace(',', '.').strip()) if isinstance(f_item['Preço Compra (€)'], str) else float(f_item['Preço Compra (€)'])
-                    p_venda_num = float(f_item['Preço Venda (€)'].replace('€', '').replace('.', '').replace(',', '.').strip()) if isinstance(f_item['Preço Venda (€)'], str) else float(f_item['Preço Venda (€)'])
+                    p_compra_num = _converter_preco_ficha(f_item.get('Preço Compra (€)'))
+                    p_venda_num = _converter_preco_ficha(f_item.get('Preço Venda (€)'))
                     novos_recs.append({
                         "ID Posição": f_item['ID Posição XTB'],
                         "Data Compra": f_item['Data Compra'],
-                        "Data Venda": dt_venda_str,
+                        "Data Venda": "",  # preencher com a data real após execução na corretora
                         "ETF": f_item['ETF'],
                         "Sigla": f_item['Sigla'],
                         "Volume (Cotas)": int(f_item['Cotas a Liquidar']),
                         "Preço Compra (€)": p_compra_num,
                         "Preço Venda (€)": p_venda_num,
-                        "Comissão (€)": 0.0
+                        "Comissão (€)": 0.0,
+                        "Estado": "Pendente"
                     })
                 if novos_recs:
                     df_novos = pd.DataFrame(novos_recs)
@@ -2855,7 +3117,9 @@ with tab6:
                     df_concat = df_concat.drop_duplicates(subset=chaves, keep="first")
                     adicionadas = len(df_concat) - len(df_existentes)
                     st.session_state['historico_vendas'] = sanitizar_df_vendas(df_concat)
-                    st.success(f"Sincronização concluída: {max(0, adicionadas)} venda(s) nova(s); duplicações idênticas ignoradas.")
+                    st.session_state.pop("saque_data", None)
+                    sincronizar_carteira_com_historico()
+                    st.success(f"Registo concluído: {max(0, adicionadas)} ordem(ns) pendente(s); duplicações idênticas ignoradas.")
                     st.rerun()
                 else:
                     st.info("Nenhuma ordem de venda pendente encontrada na Aba 3 para sincronizar.")
@@ -2865,10 +3129,12 @@ with tab6:
     with col_sync2:
         if st.button("🗑️ Limpar Histórico de Vendas", use_container_width=True, key="btn_clear_vendas"):
             st.session_state['historico_vendas'] = pd.DataFrame(columns=[
-                "ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"
+                "ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)", "Estado"
             ])
+            st.session_state.pop("saque_data", None)
             if 'editor_lotes_vendas' in st.session_state:
                 del st.session_state['editor_lotes_vendas']
+            sincronizar_carteira_com_historico()
             st.rerun()
 
     df_vendas_san = sanitizar_df_vendas(st.session_state['historico_vendas'])
@@ -2880,18 +3146,25 @@ with tab6:
         column_config={
             "ID Posição": st.column_config.TextColumn("ID Posição XTB", required=True),
             "Data Compra": st.column_config.TextColumn("Data Compra (DD/MM/AAAA)", required=True),
-            "Data Venda": st.column_config.TextColumn("Data Venda (DD/MM/AAAA)", required=True),
+            "Data Venda": st.column_config.TextColumn("Data Venda real (DD/MM/AAAA)", required=False),
             "ETF": st.column_config.SelectboxColumn("ETF", options=["IBCI - Inflation Linked", "XDEQ - World Quality", "PRAB - Amundi 0-1Y"], required=True),
             "Sigla": st.column_config.SelectboxColumn("Sigla", options=["IBCI", "XDEQ", "PRAB"], required=True),
             "Volume (Cotas)": st.column_config.NumberColumn("Volume (Cotas)", min_value=1, step=1, required=True),
-            "Preço Compra (€)": st.column_config.NumberColumn("Preço Compra (€)", min_value=0.01, format="%.2f", required=True),
+            "Preço Compra (€)": st.column_config.NumberColumn("Preço Compra (€)", min_value=0.01, format="%.2f", required=False),
             "Preço Venda (€)": st.column_config.NumberColumn("Preço Venda (€)", min_value=0.01, format="%.2f", required=True),
             "Comissão (€)": st.column_config.NumberColumn("Comissão (€)", min_value=0.0, format="%.2f", required=True),
+            "Estado": st.column_config.SelectboxColumn(
+                "Estado da Operação",
+                options=["Revisão", "Pendente", "Executada"],
+                required=False
+            ),
         }
     )
 
     if not edited_vendas_df.equals(st.session_state['historico_vendas']):
         st.session_state['historico_vendas'] = sanitizar_df_vendas(edited_vendas_df)
+        st.session_state.pop("saque_data", None)
+        sincronizar_carteira_com_historico()
 
     df_v_proc = st.session_state['historico_vendas'].copy()
     if not df_v_proc.empty:
@@ -2916,6 +3189,40 @@ with tab6:
         if linhas_invalidas:
             st.warning(f"{linhas_invalidas} linha(s) de venda incompleta(s) ou inválida(s) foram mantidas no histórico, mas excluídas da apuração até serem corrigidas.")
         df_v_proc = df_v_proc.loc[validas].copy()
+
+    # Apenas vendas associadas a um lote existente e sem excesso de quantidade
+    # podem entrar na apuração fiscal e no saldo líquido da carteira.
+    _, auditoria_lotes = calcular_posicoes_liquidas(
+        st.session_state.get('historico_compras'),
+        st.session_state.get('historico_vendas')
+    )
+    if not auditoria_lotes.empty:
+        revisao_lote = auditoria_lotes[auditoria_lotes["Estado"] == "Revisão"]
+        pendentes_lote = auditoria_lotes[auditoria_lotes["Estado"] == "Pendente"]
+        rejeitadas_lote = auditoria_lotes[auditoria_lotes["Estado"] == "Rejeitada"]
+        if not revisao_lote.empty:
+            st.warning(
+                f"{len(revisao_lote)} registo(s) antigo(s) sem estado de execução precisam de revisão. "
+                "Marque como Executada apenas a venda que confirmar na XTB."
+            )
+        if not pendentes_lote.empty:
+            st.info(
+                f"{len(pendentes_lote)} ordem(ns) pendente(s) aguardam confirmação de execução "
+                "na corretora e ainda não reduzem as cotas da carteira."
+            )
+        if not rejeitadas_lote.empty:
+            st.warning(
+                f"{len(rejeitadas_lote)} venda(s) sem correspondência válida com os lotes, "
+                "com preço de aquisição divergente ou acima das cotas disponíveis foram excluídas."
+            )
+        nao_aplicadas = auditoria_lotes[auditoria_lotes["Estado"] != "Aplicada"]
+        if not nao_aplicadas.empty:
+            with st.expander("Ver auditoria de vendas pendentes/rejeitadas"):
+                st.dataframe(nao_aplicadas, use_container_width=True, hide_index=True)
+        indices_aplicados = set(
+            (auditoria_lotes.loc[auditoria_lotes["Estado"] == "Aplicada", "Linha Venda"] - 1).tolist()
+        )
+        df_v_proc = df_v_proc.loc[df_v_proc.index.isin(indices_aplicados)].copy()
 
     if not df_v_proc.empty:
         st.markdown("---")
