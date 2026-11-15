@@ -1181,7 +1181,8 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "⚖ Calculadora de Rebalanceamento",
     "💸 Gestão Anual de Saque & Reequilíbrio",
     "📊 Rendimentos & Performance de Aportes",
-    "💱 Análise Cambial & Projeção"
+    "💱 Análise Cambial & Projeção",
+    "🏛️ Relatório Fiscal & Apuração IRS / IRPF"
 ])
 
 # =========================================================
