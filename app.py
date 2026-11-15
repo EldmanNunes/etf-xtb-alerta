@@ -22,6 +22,7 @@ APIs e Fontes de Dados:
 """
 
 import os
+import copy
 
 import io
 
@@ -97,22 +98,38 @@ def update_carteira_state(sigla, field, widget_key):
     sincronizar_chaves_carteira()
 
 def sincronizar_carteira_com_historico():
-    """Sincroniza o número total de cotas em st.session_state['carteira_etfs']
-    a partir da soma dos lotes registados em st.session_state['historico_compras']."""
-    if 'historico_compras' in st.session_state and isinstance(st.session_state['historico_compras'], pd.DataFrame):
-        df_h = st.session_state['historico_compras']
-        totais = {}
-        if not df_h.empty and 'Sigla' in df_h.columns and 'Volume (Cotas)' in df_h.columns:
-            vols = pd.to_numeric(df_h['Volume (Cotas)'], errors='coerce').fillna(0)
+    """Atualiza as cotas a partir dos lotes de compra válidos.
+
+    Linhas incompletas/inválidas permanecem no histórico para correção pelo
+    utilizador, mas não entram nos totais da carteira.
+    """
+    if not isinstance(st.session_state.get('carteira_etfs'), dict):
+        st.session_state['carteira_etfs'] = copy.deepcopy(padroes_pos_global)
+
+    df_h = st.session_state.get('historico_compras')
+    totais = {}
+    if isinstance(df_h, pd.DataFrame) and not df_h.empty:
+        colunas = {"Sigla", "Volume (Cotas)", "Preço Abertura (€)"}
+        if colunas.issubset(df_h.columns):
             df_temp = df_h.copy()
-            df_temp['Vol_Num'] = vols
-            totais = df_temp.groupby('Sigla')['Vol_Num'].sum().to_dict()
-        
-        if 'carteira_etfs' in st.session_state:
-            for sigla in ["IBCI", "XDEQ", "PRAB"]:
-                cotas_totais = int(round(float(totais.get(sigla, 0))))
-                if sigla in st.session_state['carteira_etfs']:
-                    st.session_state['carteira_etfs'][sigla]['cotas'] = cotas_totais
+            df_temp['Sigla'] = df_temp['Sigla'].astype(str).str.strip().str.upper()
+            df_temp['Vol_Num'] = pd.to_numeric(df_temp['Volume (Cotas)'], errors='coerce')
+            df_temp['Preco_Num'] = pd.to_numeric(df_temp['Preço Abertura (€)'], errors='coerce')
+            df_temp['Data_Num'] = pd.to_datetime(df_temp.get('Data Compra', pd.Series(index=df_temp.index, dtype=object)), dayfirst=True, errors='coerce')
+            validas = (
+                df_temp['Sigla'].isin(["IBCI", "XDEQ", "PRAB"])
+                & df_temp['Data_Num'].notna()
+                & df_temp['Vol_Num'].notna()
+                & df_temp['Preco_Num'].notna()
+                & (df_temp['Vol_Num'] > 0)
+                & (df_temp['Preco_Num'] > 0)
+                & (df_temp['Vol_Num'] % 1 == 0)
+            )
+            totais = df_temp.loc[validas].groupby('Sigla')['Vol_Num'].sum().to_dict()
+
+    for sigla in ["IBCI", "XDEQ", "PRAB"]:
+        if sigla in st.session_state['carteira_etfs']:
+            st.session_state['carteira_etfs'][sigla]['cotas'] = int(totais.get(sigla, 0))
 
     sincronizar_chaves_carteira()
 
@@ -185,74 +202,92 @@ def obter_rentabilidade_global_historico():
         "retorno_pct": retorno_pct
     }
 
-def sanitizar_df_historico(df):
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        return pd.DataFrame(columns=[
-            "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
-        ])
-    
-    df_out = df.copy()
-    cols_req = ["ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]
-    for col in cols_req:
-        if col not in df_out.columns:
-            df_out[col] = "" if col in ["ID Posição", "Data Compra", "ETF", "Sigla"] else 0
-            
-    df_out = df_out[cols_req]
+def _normalizar_data_registo(valor):
+    """Normaliza datas válidas sem inventar uma data para valores ausentes."""
+    if pd.isna(valor) or str(valor).strip() == "":
+        return ""
+    if isinstance(valor, (pd.Timestamp, datetime, date)):
+        return valor.strftime("%d/%m/%Y")
+    texto = str(valor).strip()
+    try:
+        data_convertida = pd.to_datetime(texto, dayfirst=True, errors="raise")
+        return data_convertida.strftime("%d/%m/%Y")
+    except (TypeError, ValueError, OverflowError):
+        return texto
 
-    def _fix_id(val):
-        if pd.isna(val) or val == "":
-            return ""
-        if isinstance(val, float) and val.is_integer():
-            return str(int(val))
-        return str(val).strip()
-    df_out["ID Posição"] = df_out["ID Posição"].apply(_fix_id)
 
-    def _fix_date(val):
-        if pd.isna(val) or val == "":
-            return ""
-        if isinstance(val, (pd.Timestamp, datetime, date)):
-            return val.strftime("%d/%m/%Y")
-        s = str(val).strip()
-        try:
-            dt = pd.to_datetime(s, dayfirst=True)
-            return dt.strftime("%d/%m/%Y")
-        except Exception:
-            return s
-    df_out["Data Compra"] = df_out["Data Compra"].apply(_fix_date)
+def _normalizar_identificador(valor):
+    if pd.isna(valor) or str(valor).strip() == "":
+        return ""
+    if isinstance(valor, (float, np.floating)) and float(valor).is_integer():
+        return str(int(valor))
+    return str(valor).strip()
 
-    sigla_map_to_full = {
+
+def _normalizar_etf_sigla(df_out):
+    mapa = {
         "IBCI": "IBCI - Inflation Linked",
         "XDEQ": "XDEQ - World Quality",
-        "PRAB": "PRAB - Amundi 0-1Y"
+        "PRAB": "PRAB - Amundi 0-1Y",
     }
-    full_to_sigla = {v: k for k, v in sigla_map_to_full.items()}
-
-    def _fix_sigla(row):
-        sigla_val = str(row["Sigla"]).strip().upper() if pd.notnull(row["Sigla"]) else ""
-        etf_val = str(row["ETF"]).strip() if pd.notnull(row["ETF"]) else ""
-
-        if sigla_val in sigla_map_to_full:
-            actual_sigla = sigla_val
-        elif etf_val in full_to_sigla:
-            actual_sigla = full_to_sigla[etf_val]
+    inverso = {nome: sigla for sigla, nome in mapa.items()}
+    siglas, etfs = [], []
+    for _, linha in df_out.iterrows():
+        valor_sigla = linha.get("Sigla", "")
+        valor_etf = linha.get("ETF", "")
+        sigla = "" if pd.isna(valor_sigla) else str(valor_sigla).strip().upper()
+        etf = "" if pd.isna(valor_etf) else str(valor_etf).strip()
+        if sigla not in mapa and etf in inverso:
+            sigla = inverso[etf]
+        if sigla in mapa:
+            etf = mapa[sigla]
+        elif etf not in inverso:
+            etf = ""
+            sigla = ""
         else:
-            actual_sigla = "IBCI"
-
-        actual_etf = sigla_map_to_full[actual_sigla]
-        return pd.Series([actual_etf, actual_sigla])
-
-    df_out[["ETF", "Sigla"]] = df_out.apply(_fix_sigla, axis=1)
-
-    df_out["Volume (Cotas)"] = pd.to_numeric(df_out["Volume (Cotas)"], errors='coerce').fillna(1)
-    df_out["Volume (Cotas)"] = df_out["Volume (Cotas)"].apply(lambda x: max(1, int(round(float(x)))))
-
-    df_out["Preço Abertura (€)"] = pd.to_numeric(df_out["Preço Abertura (€)"], errors='coerce').fillna(0.01)
-    df_out["Preço Abertura (€)"] = df_out["Preço Abertura (€)"].apply(lambda x: max(0.01, float(x)))
-
-    df_out["Comissão (€)"] = pd.to_numeric(df_out["Comissão (€)"], errors='coerce').fillna(0.0)
-    df_out["Comissão (€)"] = df_out["Comissão (€)"].apply(lambda x: max(0.0, float(x)))
-
+            sigla = inverso[etf]
+        siglas.append(sigla)
+        etfs.append(etf)
+    df_out["ETF"] = etfs
+    df_out["Sigla"] = siglas
     return df_out
+
+
+def sanitizar_df_historico(df):
+    """Normaliza o histórico de compras sem criar dados financeiros fictícios.
+
+    Valores em falta/inválidos ficam vazios (NaN ou string vazia) para serem
+    corrigidos no editor; não são convertidos em 1 cota ou preço de €0,01.
+    """
+    colunas = ["ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame(columns=colunas)
+
+    df_out = df.copy()
+    for coluna in colunas:
+        if coluna not in df_out.columns:
+            df_out[coluna] = np.nan if coluna in ["Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"] else ""
+    df_out = df_out[colunas].copy()
+
+    # Remove apenas linhas inteiramente vazias (placeholder do data_editor).
+    texto_cols = ["ID Posição", "Data Compra", "ETF", "Sigla"]
+    num_cols = ["Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"]
+    vazias_texto = df_out[texto_cols].fillna("").astype(str).apply(lambda c: c.str.strip().eq(""))
+    vazias_num = df_out[num_cols].apply(pd.to_numeric, errors="coerce").isna()
+    df_out = df_out.loc[~(vazias_texto.all(axis=1) & vazias_num.all(axis=1))].copy()
+
+    df_out["ID Posição"] = df_out["ID Posição"].apply(_normalizar_identificador)
+    df_out["Data Compra"] = df_out["Data Compra"].apply(_normalizar_data_registo)
+    df_out = _normalizar_etf_sigla(df_out)
+
+    df_out["Volume (Cotas)"] = pd.to_numeric(df_out["Volume (Cotas)"], errors="coerce")
+    df_out["Preço Abertura (€)"] = pd.to_numeric(df_out["Preço Abertura (€)"], errors="coerce")
+    df_out["Comissão (€)"] = pd.to_numeric(df_out["Comissão (€)"], errors="coerce")
+    # Valores impossíveis permanecem ausentes e não entram nos cálculos.
+    df_out.loc[(df_out["Volume (Cotas)"] <= 0) | (df_out["Volume (Cotas)"] % 1 != 0), "Volume (Cotas)"] = np.nan
+    df_out.loc[df_out["Preço Abertura (€)"] <= 0, "Preço Abertura (€)"] = np.nan
+    df_out.loc[df_out["Comissão (€)"] < 0, "Comissão (€)"] = np.nan
+    return df_out.reset_index(drop=True)
 
 def obter_df_lotes_demo():
     return pd.DataFrame([
@@ -732,68 +767,34 @@ def obter_taxa_cambio_historica(data_str, base='EUR', alvo='BRL'):
     return 6.12
 
 def sanitizar_df_vendas(df):
+    """Normaliza vendas sem completar campos ausentes com valores inventados."""
+    colunas = ["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"]
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        return pd.DataFrame(columns=[
-            "ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"
-        ])
+        return pd.DataFrame(columns=colunas)
 
     df_out = df.copy()
-    cols_req = ["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"]
-    for col in cols_req:
-        if col not in df_out.columns:
-            df_out[col] = "" if col in ["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla"] else 0
+    numericas = ["Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"]
+    for coluna in colunas:
+        if coluna not in df_out.columns:
+            df_out[coluna] = np.nan if coluna in numericas else ""
+    df_out = df_out[colunas].copy()
 
-    df_out = df_out[cols_req]
+    texto_cols = ["ID Posição", "Data Compra", "Data Venda", "ETF", "Sigla"]
+    vazias_texto = df_out[texto_cols].fillna("").astype(str).apply(lambda c: c.str.strip().eq(""))
+    vazias_num = df_out[numericas].apply(pd.to_numeric, errors="coerce").isna()
+    df_out = df_out.loc[~(vazias_texto.all(axis=1) & vazias_num.all(axis=1))].copy()
 
-    def _fix_id(val):
-        if pd.isna(val) or val == "":
-            return ""
-        if isinstance(val, float) and val.is_integer():
-            return str(int(val))
-        return str(val).strip()
-    df_out["ID Posição"] = df_out["ID Posição"].apply(_fix_id)
-
-    def _fix_date(val):
-        if pd.isna(val) or val == "":
-            return datetime.now().strftime("%d/%m/%Y")
-        if isinstance(val, (pd.Timestamp, datetime, date)):
-            return val.strftime("%d/%m/%Y")
-        s = str(val).strip()
-        try:
-            dt = pd.to_datetime(s, dayfirst=True)
-            return dt.strftime("%d/%m/%Y")
-        except Exception:
-            return s
-    df_out["Data Compra"] = df_out["Data Compra"].apply(_fix_date)
-    df_out["Data Venda"] = df_out["Data Venda"].apply(_fix_date)
-
-    sigla_map_to_full = {
-        "IBCI": "IBCI - Inflation Linked",
-        "XDEQ": "XDEQ - World Quality",
-        "PRAB": "PRAB - Amundi 0-1Y"
-    }
-    full_to_sigla = {v: k for k, v in sigla_map_to_full.items()}
-
-    def _fix_sigla(row):
-        sigla_val = str(row["Sigla"]).strip().upper() if pd.notnull(row["Sigla"]) else ""
-        etf_val = str(row["ETF"]).strip() if pd.notnull(row["ETF"]) else ""
-        if sigla_val in sigla_map_to_full:
-            actual_sigla = sigla_val
-        elif etf_val in full_to_sigla:
-            actual_sigla = full_to_sigla[etf_val]
-        else:
-            actual_sigla = "IBCI"
-        actual_etf = sigla_map_to_full[actual_sigla]
-        return pd.Series([actual_etf, actual_sigla])
-
-    df_out[["ETF", "Sigla"]] = df_out.apply(_fix_sigla, axis=1)
-
-    df_out["Volume (Cotas)"] = pd.to_numeric(df_out["Volume (Cotas)"], errors='coerce').fillna(1).apply(lambda x: max(1, int(round(float(x)))))
-    df_out["Preço Compra (€)"] = pd.to_numeric(df_out["Preço Compra (€)"], errors='coerce').fillna(0.01).apply(lambda x: max(0.01, float(x)))
-    df_out["Preço Venda (€)"] = pd.to_numeric(df_out["Preço Venda (€)"], errors='coerce').fillna(0.01).apply(lambda x: max(0.01, float(x)))
-    df_out["Comissão (€)"] = pd.to_numeric(df_out["Comissão (€)"], errors='coerce').fillna(0.0).apply(lambda x: max(0.0, float(x)))
-
-    return df_out
+    df_out["ID Posição"] = df_out["ID Posição"].apply(_normalizar_identificador)
+    df_out["Data Compra"] = df_out["Data Compra"].apply(_normalizar_data_registo)
+    df_out["Data Venda"] = df_out["Data Venda"].apply(_normalizar_data_registo)
+    df_out = _normalizar_etf_sigla(df_out)
+    for coluna in numericas:
+        df_out[coluna] = pd.to_numeric(df_out[coluna], errors="coerce")
+    df_out.loc[(df_out["Volume (Cotas)"] <= 0) | (df_out["Volume (Cotas)"] % 1 != 0), "Volume (Cotas)"] = np.nan
+    df_out.loc[df_out["Preço Compra (€)"] <= 0, "Preço Compra (€)"] = np.nan
+    df_out.loc[df_out["Preço Venda (€)"] <= 0, "Preço Venda (€)"] = np.nan
+    df_out.loc[df_out["Comissão (€)"] < 0, "Comissão (€)"] = np.nan
+    return df_out.reset_index(drop=True)
 
 def obter_df_vendas_demo():
     return pd.DataFrame([
@@ -1027,6 +1028,11 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
 
 st.set_page_config(page_title="ETF Tracker, Rebalancer & Análise Cambial XTB", layout="wide", page_icon="📊 ")
 
+# A carteira deve existir antes da criação dos botões de perfis táticos.
+if 'carteira_etfs' not in st.session_state:
+    st.session_state['carteira_etfs'] = copy.deepcopy(padroes_pos_global)
+    st.session_state['_carteira_precos_inicializados'] = False
+
 st.title("📊 ETF Tracker, Rebalancer & Análise Cambial XTB")
 
 st.sidebar.header("⚙ Configurações Gerais")
@@ -1184,16 +1190,16 @@ if st.sidebar.button(f"⚡ Aplicar Sugestão ({rec_prof_name})", use_container_w
 
 dados = carregar_dados_etfs(tickers_etf, periodo)
 
-if 'carteira_etfs' not in st.session_state:
-    st.session_state['carteira_etfs'] = padroes_pos_global.copy()
+if not st.session_state.get('_carteira_precos_inicializados', False):
     for sigla, info in st.session_state['carteira_etfs'].items():
         tk = info["ticker"]
-        if not dados.empty and tk in dados.columns:
-            s_t = dados[tk].dropna()
-            if not s_t.empty:
-                p_live = float(s_t.iloc[-1])
-                info["p_compra"] = round(p_live, 2)
-                info["p_venda"] = round(p_live, 2)
+        if isinstance(dados, pd.DataFrame) and not dados.empty and tk in dados.columns:
+            serie_preco = dados[tk].dropna()
+            if not serie_preco.empty:
+                preco_live = float(serie_preco.iloc[-1])
+                info["p_compra"] = round(preco_live, 2)
+                info["p_venda"] = round(preco_live, 2)
+    st.session_state['_carteira_precos_inicializados'] = True
 
 if 'historico_compras' not in st.session_state:
     st.session_state['historico_compras'] = pd.DataFrame(columns=[
@@ -1660,7 +1666,13 @@ with tab2:
     # 4. Processamento dos Cálculos de Rendimento e Performance
     if not df_editado.empty:
         df_calc = df_editado.copy()
-        
+        datas_compra_calc = pd.to_datetime(df_calc["Data Compra"], dayfirst=True, errors="coerce")
+        df_calc = df_calc.loc[
+            df_calc["Sigla"].isin(["IBCI", "XDEQ", "PRAB"])
+            & datas_compra_calc.notna()
+            & pd.to_numeric(df_calc["Volume (Cotas)"], errors="coerce").gt(0)
+            & pd.to_numeric(df_calc["Preço Abertura (€)"], errors="coerce").gt(0)
+        ].copy()
         df_calc["Volume (Cotas)"] = pd.to_numeric(df_calc["Volume (Cotas)"], errors='coerce').fillna(0)
         df_calc["Preço Abertura (€)"] = pd.to_numeric(df_calc["Preço Abertura (€)"], errors='coerce').fillna(0.0)
         df_calc["Comissão (€)"] = pd.to_numeric(df_calc["Comissão (€)"], errors='coerce').fillna(0.0)
@@ -2805,8 +2817,8 @@ with tab6:
     st.markdown("### 1. Histórico de Vendas & Alienações Registadas (xStation 5)")
     st.caption("Registe ou edite os lotes alienados na XTB. Pode sincronizar automaticamente com o último saque executado na Aba 3.")
 
-    if 'historico_vendas' not in st.session_state or not isinstance(st.session_state['historico_vendas'], pd.DataFrame) or st.session_state['historico_vendas'].empty:
-        st.session_state['historico_vendas'] = obter_df_vendas_demo()
+    if 'historico_vendas' not in st.session_state or not isinstance(st.session_state['historico_vendas'], pd.DataFrame):
+        st.session_state['historico_vendas'] = sanitizar_df_vendas(obter_df_vendas_demo())
 
     col_sync1, col_sync2 = st.columns([2, 1])
     with col_sync1:
@@ -2831,9 +2843,14 @@ with tab6:
                     })
                 if novos_recs:
                     df_novos = pd.DataFrame(novos_recs)
-                    df_concat = pd.concat([st.session_state['historico_vendas'], df_novos], ignore_index=True)
+                    df_existentes = sanitizar_df_vendas(st.session_state['historico_vendas'])
+                    df_concat = pd.concat([df_existentes, df_novos], ignore_index=True)
+                    chaves = ["ID Posição", "Data Compra", "Data Venda", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)", "Comissão (€)"]
+                    antes = len(df_concat)
+                    df_concat = df_concat.drop_duplicates(subset=chaves, keep="first")
+                    adicionadas = len(df_concat) - len(df_existentes)
                     st.session_state['historico_vendas'] = sanitizar_df_vendas(df_concat)
-                    st.success("Vendas da Aba 3 sincronizadas com sucesso para o Relatório Fiscal!")
+                    st.success(f"Sincronização concluída: {max(0, adicionadas)} venda(s) nova(s); duplicações idênticas ignoradas.")
                     st.rerun()
                 else:
                     st.info("Nenhuma ordem de venda pendente encontrada na Aba 3 para sincronizar.")
@@ -2872,6 +2889,28 @@ with tab6:
         st.session_state['historico_vendas'] = sanitizar_df_vendas(edited_vendas_df)
 
     df_v_proc = st.session_state['historico_vendas'].copy()
+    if not df_v_proc.empty:
+        colunas_obrigatorias = ["Data Compra", "Data Venda", "Sigla", "Volume (Cotas)", "Preço Compra (€)", "Preço Venda (€)"]
+        validacao = df_v_proc[colunas_obrigatorias].copy()
+        datas_compra = pd.to_datetime(validacao["Data Compra"], dayfirst=True, errors="coerce")
+        datas_venda = pd.to_datetime(validacao["Data Venda"], dayfirst=True, errors="coerce")
+        volumes = pd.to_numeric(validacao["Volume (Cotas)"], errors="coerce")
+        p_compra = pd.to_numeric(validacao["Preço Compra (€)"], errors="coerce")
+        p_venda = pd.to_numeric(validacao["Preço Venda (€)"], errors="coerce")
+        comissao = pd.to_numeric(validacao.get("Comissão (€)", pd.Series(index=validacao.index, dtype=float)), errors="coerce")
+        ids_validos = df_v_proc["ID Posição"].astype(str).str.strip().ne("")
+        validas = (
+            ids_validos & datas_compra.notna() & datas_venda.notna() & (datas_venda >= datas_compra)
+            & validacao["Sigla"].isin(["IBCI", "XDEQ", "PRAB"])
+            & volumes.notna() & (volumes > 0) & (volumes % 1 == 0)
+            & p_compra.notna() & (p_compra > 0)
+            & p_venda.notna() & (p_venda > 0)
+            & comissao.notna() & (comissao >= 0)
+        )
+        linhas_invalidas = int((~validas).sum())
+        if linhas_invalidas:
+            st.warning(f"{linhas_invalidas} linha(s) de venda incompleta(s) ou inválida(s) foram mantidas no histórico, mas excluídas da apuração até serem corrigidas.")
+        df_v_proc = df_v_proc.loc[validas].copy()
 
     if not df_v_proc.empty:
         st.markdown("---")
