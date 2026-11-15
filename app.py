@@ -3182,7 +3182,9 @@ with tab6:
         volumes = pd.to_numeric(validacao["Volume (Cotas)"], errors="coerce")
         p_compra = pd.to_numeric(validacao["Preço Compra (€)"], errors="coerce")
         p_venda = pd.to_numeric(validacao["Preço Venda (€)"], errors="coerce")
-        comissao = pd.to_numeric(validacao.get("Comissão (€)", pd.Series(index=validacao.index, dtype=float)), errors="coerce")
+        # Mudei aqui
+        #comissao = pd.to_numeric(validacao.get("Comissão (€)", pd.Series(index=validacao.index, dtype=float)), errors="coerce")
+        comissao = pd.to_numeric(df_v_proc["Comissão (€)"], errors="coerce") # por essa linha
         ids_validos = df_v_proc["ID Posição"].astype(str).str.strip().ne("")
         validas = (
             ids_validos & datas_compra.notna() & datas_venda.notna() & (datas_venda >= datas_compra)
