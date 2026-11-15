@@ -84,6 +84,19 @@ def update_carteira_state(sigla, field, widget_key):
         st.session_state['carteira_etfs'][sigla][field] = float(val) if val is not None else 0.0
     sincronizar_chaves_carteira()
 
+def aplicar_perfil_tatico(rec_i, rec_x, rec_p):
+    if 'carteira_etfs' in st.session_state:
+        st.session_state['carteira_etfs']['IBCI']['alvo'] = float(rec_i) / 100.0
+        st.session_state['carteira_etfs']['IBCI']['teto'] = (float(rec_i) + 5.0) / 100.0
+        st.session_state['carteira_etfs']['XDEQ']['alvo'] = float(rec_x) / 100.0
+        st.session_state['carteira_etfs']['XDEQ']['teto'] = (float(rec_x) + 5.0) / 100.0
+        st.session_state['carteira_etfs']['PRAB']['alvo'] = float(rec_p) / 100.0
+        st.session_state['carteira_etfs']['PRAB']['teto'] = (float(rec_p) + 5.0) / 100.0
+    st.session_state['in_taa_ibci'] = float(rec_i)
+    st.session_state['in_taa_xdeq'] = float(rec_x)
+    st.session_state['in_taa_prab'] = float(rec_p)
+    sincronizar_chaves_carteira()
+
 def sincronizar_carteira_com_historico():
     """Sincroniza o número total de cotas em st.session_state['carteira_etfs']
     a partir da soma dos lotes registados em st.session_state['historico_compras']."""
