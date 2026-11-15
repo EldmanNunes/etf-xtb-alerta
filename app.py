@@ -3221,6 +3221,12 @@ with tab6:
         st.session_state.get('historico_compras'),
         st.session_state.get('historico_vendas')
     )
+    
+    # Modifiquei aqui
+    st.subheader("AUDITORIA COMPLETA")
+    st.dataframe(auditoria_lotes)
+    # Terminei a modificação aqui
+    
     if not auditoria_lotes.empty:
         revisao_lote = auditoria_lotes[auditoria_lotes["Estado"] == "Revisão"]
         pendentes_lote = auditoria_lotes[auditoria_lotes["Estado"] == "Pendente"]
