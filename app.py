@@ -66,14 +66,16 @@ ETF_MAP = {
     }
 }
 
-tickers_etf = [meta["ticker"] for meta in ETF_MAP.values()]
 
-# Mapeamento e Posição Canónica dos ETFs
+# Mapeamento e Posição Canónica dos ETFs (Cotas, Preço Compra/Ask & Preço Venda/Bid)
+
+
 padroes_pos_global = {
     "IBCI": {"cotas": 0, "p_compra": 230.19, "p_venda": 230.10, "ticker": "IBCI.DE", "alvo": 0.45, "teto": 0.50, "nome_full": "IBCI - Inflation Linked"},
     "XDEQ": {"cotas": 0, "p_compra": 81.82, "p_venda": 81.75, "ticker": "XDEQ.DE", "alvo": 0.30, "teto": 0.35, "nome_full": "XDEQ - World Quality"},
     "PRAB": {"cotas": 0, "p_compra": 21.84, "p_venda": 21.82, "ticker": "PRAB.DE", "alvo": 0.25, "teto": 0.30, "nome_full": "PRAB - Amundi 0-1Y"}
 }
+
 def update_carteira_state(sigla, field, widget_key):
     val = st.session_state[widget_key]
     if field == 'cotas':
@@ -81,7 +83,6 @@ def update_carteira_state(sigla, field, widget_key):
     else:
         st.session_state['carteira_etfs'][sigla][field] = float(val) if val is not None else 0.0
     sincronizar_chaves_carteira()
-
 
 def sincronizar_carteira_com_historico():
     """Sincroniza o número total de cotas em st.session_state['carteira_etfs']
@@ -130,12 +131,117 @@ def sincronizar_chaves_carteira():
                 pass
 
 
+# Sidebar - Configurações Gerais
+st.sidebar.header("⚙ Configurações Gerais")
+periodo = st.sidebar.selectbox(
+    "Período Histórico (Gráficos ETFs):",
+    options=["1y", "2y", "5y", "10y", "max"],
+    index=2
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📈 Indicadores Técnicos (ETFs)")
+mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
+mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
+mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
+mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Alocação Tática Dinâmica & Metas (TAA)")
+st.sidebar.caption("Defina percentuais flexíveis ou escolha um perfil tático pré-definido.")
+
+m_ibci_curr = float(st.session_state.get('carteira_etfs', {}).get('IBCI', {}).get('alvo', 0.45) * 100)
+m_xdeq_curr = float(st.session_state.get('carteira_etfs', {}).get('XDEQ', {}).get('alvo', 0.30) * 100)
+m_prab_curr = float(st.session_state.get('carteira_etfs', {}).get('PRAB', {}).get('alvo', 0.25) * 100)
+
+col_taa1, col_taa2, col_taa3 = st.sidebar.columns(3)
+with col_taa1:
+    in_m_ibci = st.number_input("IBCI (%)", min_value=0.0, max_value=100.0, value=m_ibci_curr, step=1.0, key="in_taa_ibci")
+with col_taa2:
+    in_m_xdeq = st.number_input("XDEQ (%)", min_value=0.0, max_value=100.0, value=m_xdeq_curr, step=1.0, key="in_taa_xdeq")
+with col_taa3:
+    in_m_prab = st.number_input("PRAB (%)", min_value=0.0, max_value=100.0, value=m_prab_curr, step=1.0, key="in_taa_prab")
+
+soma_m = in_m_ibci + in_m_xdeq + in_m_prab
+if abs(soma_m - 100.0) < 0.01:
+    st.sidebar.success("🟢 Soma das Metas: 100%")
+    if 'carteira_etfs' in st.session_state:
+        st.session_state['carteira_etfs']['IBCI']['alvo'] = in_m_ibci / 100.0
+        st.session_state['carteira_etfs']['IBCI']['teto'] = (in_m_ibci + 5.0) / 100.0
+        st.session_state['carteira_etfs']['XDEQ']['alvo'] = in_m_xdeq / 100.0
+        st.session_state['carteira_etfs']['XDEQ']['teto'] = (in_m_xdeq + 5.0) / 100.0
+        st.session_state['carteira_etfs']['PRAB']['alvo'] = in_m_prab / 100.0
+        st.session_state['carteira_etfs']['PRAB']['teto'] = (in_m_prab + 5.0) / 100.0
+else:
+    st.sidebar.warning(f"⚠️ Total das metas: {soma_m:.1f}% (deve ser 100%)")
+
+st.sidebar.markdown("**⚡ Perfis Táticos Pré-Definidos:**")
+col_p1, col_p2, col_p3 = st.sidebar.columns(3)
+col_p1.button("🛡️ Defensivo", help="50% IBCI / 25% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_def", on_click=aplicar_perfil_tatico, args=(50.0, 25.0, 25.0))
+col_p2.button("⚖️ Equilibrado", help="45% IBCI / 30% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_eq", on_click=aplicar_perfil_tatico, args=(45.0, 30.0, 25.0))
+col_p3.button("🚀 Expansão", help="35% IBCI / 40% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_exp", on_click=aplicar_perfil_tatico, args=(35.0, 40.0, 25.0))
+# Motor de Diagnóstico Inteligente (Smart TAA)
+try:
+    hicp_v = float(obter_hicp_oficial_eurostat())
+except Exception:
+    hicp_v = 2.1
+
+m50_x, m200_x, rsi_x = 0.0, 0.0, 50.0
+if 'dados' in globals() and isinstance(dados, pd.DataFrame) and not dados.empty:
+    if 'XDEQ.DE' in dados.columns:
+        s_x = dados['XDEQ.DE'].dropna()
+        if len(s_x) >= 50:
+            m50_x = float(s_x.tail(50).mean())
+            m200_x = float(s_x.tail(200).mean()) if len(s_x) >= 200 else m50_x
+            d_x = s_x.diff()
+            g_x = float(d_x.where(d_x > 0, 0).tail(14).mean())
+            l_x = float((-d_x.where(d_x < 0, 0)).tail(14).mean())
+            rsi_x = 100 - (100 / (1 + (g_x / l_x))) if l_x > 0 else 50.0
+
+if hicp_v > 3.5 or (m50_x < m200_x and m50_x > 0):
+    rec_prof_name = "Defensivo"
+    rec_i, rec_x, rec_p = 50.0, 25.0, 25.0
+    rec_icon = "🛡️"
+    rec_motivo = f"Inflação HICP elevada ({fmt_br(hicp_v, 1, suffix='%')}) ou XDEQ em tendência de baixa."
+elif hicp_v < 3.0 and m50_x > m200_x and rsi_x > 50:
+    rec_prof_name = "Expansão"
+    rec_i, rec_x, rec_p = 35.0, 40.0, 25.0
+    rec_icon = "🚀"
+    rec_motivo = f"Inflação HICP controlada ({fmt_br(hicp_v, 1, suffix='%')}) e XDEQ em alta técnica."
+else:
+    rec_prof_name = "Equilibrado"
+    rec_i, rec_x, rec_p = 45.0, 30.0, 25.0
+    rec_icon = "⚖️"
+    rec_motivo = f"Cenário macroeconómico e técnico equilibrado (HICP: {fmt_br(hicp_v, 1, suffix='%')})."
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**💡 Diagnóstico Inteligente (Smart TAA):**")
+st.sidebar.info(f"**Sugestão Tática:** {rec_icon} **{rec_prof_name}** ({int(rec_i)}% IBCI / {int(rec_x)}% XDEQ / {int(rec_p)}% PRAB)\n\n*Motivo:* {rec_motivo}")
+st.sidebar.button(f"⚡ Aplicar Sugestão ({rec_prof_name})", use_container_width=True, key="btn_apply_smart_taa", on_click=aplicar_perfil_tatico, args=(rec_i, rec_x, rec_p))
+
+
+
+# Cache de Download de Dados de ETFs
 @st.cache_data(ttl=3600)
 def carregar_dados_etfs(tickers_list, period):
     df = yf.download(tickers_list, period=period, auto_adjust=True, progress=False)
     if isinstance(df.columns, pd.MultiIndex):
         df = df['Close']
     return df
+
+tickers_etf = [meta["ticker"] for meta in ETF_MAP.values()]
+dados = carregar_dados_etfs(tickers_etf, periodo)
+
+if 'carteira_etfs' not in st.session_state:
+    st.session_state['carteira_etfs'] = padroes_pos_global.copy()
+    for sigla, info in st.session_state['carteira_etfs'].items():
+        tk = info["ticker"]
+        if not dados.empty and tk in dados.columns:
+            s_t = dados[tk].dropna()
+            if not s_t.empty:
+                p_live = float(s_t.iloc[-1])
+                info["p_compra"] = round(p_live, 2)
+                info["p_venda"] = round(p_live, 2)
 
 
 def obter_rentabilidade_global_historico():
@@ -177,6 +283,7 @@ def obter_rentabilidade_global_historico():
     }
 
 
+# Sanitização Rigorosa do Histórico de Lotes para st.data_editor
 def sanitizar_df_historico(df):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return pd.DataFrame(columns=[
@@ -247,6 +354,8 @@ def sanitizar_df_historico(df):
     return df_out
 
 
+
+
 def obter_df_lotes_demo():
     return pd.DataFrame([
         {"ID Posição": "2280842619", "Data Compra": "09/01/2026", "ETF": "IBCI - Inflation Linked", "Sigla": "IBCI", "Volume (Cotas)": 2, "Preço Abertura (€)": 231.30, "Comissão (€)": 0.00},
@@ -255,7 +364,17 @@ def obter_df_lotes_demo():
         {"ID Posição": "1002849122", "Data Compra": "05/01/2026", "ETF": "PRAB - Amundi 0-1Y", "Sigla": "PRAB", "Volume (Cotas)": 654, "Preço Abertura (€)": 21.84, "Comissão (€)": 0.00}
     ])
 
+if 'historico_compras' not in st.session_state:
+    st.session_state['historico_compras'] = pd.DataFrame(columns=[
+        "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
+    ])
 
+sincronizar_carteira_com_historico()
+
+
+# =========================================================
+# FUNÇÕES DE IMPORTAÇÃO/EXPORTAÇÃO EXCEL & RESET DE DADOS (GITHUB PUBLIC SAFETY)
+# =========================================================
 def gerar_modelo_excel():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -274,7 +393,6 @@ def gerar_modelo_excel():
         ])
         df_carteira_demo.to_excel(writer, sheet_name='Carteira_Geral', index=False)
     return output.getvalue()
-
 
 def exportar_carteira_excel_full(df_lotes, carteira_dict, df_vendas=None):
     output = io.BytesIO()
@@ -341,7 +459,6 @@ def processar_importacao_excel(file_bytes):
     except Exception as e:
         return False, f"Erro ao importar planilha: {str(e)}"
 
-
 def limpar_dados_sessao():
     st.session_state['historico_compras'] = pd.DataFrame(columns=[
         "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
@@ -378,6 +495,71 @@ def limpar_dados_sessao():
     sincronizar_chaves_carteira()
 
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔒 Gestão de Dados & Privacidade (GitHub)")
+st.sidebar.caption("Os dados pessoais permanecem apenas na memória temporária da sessão (`session_state`) e não são gravados no repositório GitHub.")
+
+with st.sidebar.expander("📂 Importar / Exportar Planilha Excel (.xlsx)", expanded=False):
+    st.markdown("**1. Importar Planilha de Aportes & Carteira**")
+    file_uploaded = st.file_uploader("Carregar planilha (.xlsx):", type=["xlsx"], key="excel_uploader_sidebar")
+    if file_uploaded is not None:
+        if st.button("📥 Processar Importação Excel", use_container_width=True, key="btn_import_sidebar"):
+            ok, msg_imp = processar_importacao_excel(file_uploaded)
+            if ok:
+                st.success(msg_imp)
+                st.rerun()
+            else:
+                st.error(msg_imp)
+
+    st.markdown("---")
+    st.markdown("**2. Exportar Dados Atuais para Excel**")
+    excel_bytes_export = exportar_carteira_excel_full(
+        st.session_state.get('historico_compras'),
+        st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas')
+    )
+    st.download_button(
+        label="📤 Exportar Carteira em Excel (.xlsx)",
+        data=excel_bytes_export,
+        file_name=f"Carteira_ETFs_XTB_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        key="btn_export_sidebar"
+    )
+
+    st.markdown("---")
+    st.markdown("**3. Modelo / Template em Branco**")
+    excel_template_bytes = gerar_modelo_excel()
+    st.download_button(
+        label="📄 Baixar Modelo de Planilha (.xlsx)",
+        data=excel_template_bytes,
+        file_name="Modelo_Importacao_ETFs_XTB.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+        key="btn_template_sidebar"
+    )
+
+st.sidebar.markdown("**Sincronização das Abas:**")
+if st.sidebar.button("🔄 Sincronizar Cotas (Histórico -> Carteira)", use_container_width=True, key="btn_sync_sidebar"):
+    sincronizar_carteira_com_historico()
+    st.sidebar.success("Cotas da Carteira (Abas 1, 2 e 3) sincronizadas com o Histórico de Lotes!")
+    st.rerun()
+
+st.sidebar.markdown("**Limpeza de Dados Pessoais (Reset de Segurança):**")
+if st.sidebar.button("🗑️ Limpar Todos os Dados da Sessão", use_container_width=True, key="btn_clear_data_sidebar"):
+    limpar_dados_sessao()
+    st.sidebar.success("Dados da sessão eliminados. Nenhuma informação pessoal está em memória.")
+    st.rerun()
+
+
+# Credenciais do Gmail
+GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", ""))
+GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
+
+# Domínio da Aplicação Streamlit (Garantido em todas as Abas)
+APP_DOMAIN = st.secrets.get("APP_DOMAIN", os.getenv("APP_DOMAIN", "etf-xtb-alerta.streamlit.app"))
+app_domain = APP_DOMAIN
+
+# Consulta Automática à API Oficial do Eurostat para Inflação HICP
 @st.cache_data(ttl=86400)
 def obter_hicp_oficial_eurostat():
     try:
@@ -418,7 +600,7 @@ def calcular_indicadores_etf(serie):
 
     return df
 
-
+# Helper para Formatação Numérica no Padrão Brasileiro (PT-BR)
 def fmt_br(val, decimals=2, signed=False, prefix="", suffix=""):
     if val is None or pd.isna(val):
         return ""
@@ -430,7 +612,6 @@ def fmt_br(val, decimals=2, signed=False, prefix="", suffix=""):
     except Exception:
         return str(val)
 
-
 def sanitizar_pdf(texto: str) -> str:
     replacements = {
         '•': '-', '€': 'EUR', '🟢 ': '[COMPRAR]', '🔵 ': '[MANTER]', '🟡 ': '[AGUARDAR]', '🔴 ': '[REDUZIR]',
@@ -440,7 +621,6 @@ def sanitizar_pdf(texto: str) -> str:
     for orig, repl in replacements.items():
         texto = texto.replace(orig, repl)
     return texto.encode('latin-1', 'replace').decode('latin-1')
-
 
 def enviar_email_relatorio(destinatario, assunto, corpo_texto):
     if not GMAIL_PASS or not GMAIL_USER:
@@ -461,7 +641,7 @@ def enviar_email_relatorio(destinatario, assunto, corpo_texto):
     except Exception as e:
         return False, f"Falha ao enviar e-mail: {str(e)}"
 
-
+# GERADORES DE PDF PARA CADA ABA
 def gerar_pdf_relatorio(itens_diagnostico, df_resumo_num, matriz_corr, data_str):
     pdf = FPDF()
     pdf.add_page()
@@ -540,7 +720,6 @@ def gerar_pdf_relatorio(itens_diagnostico, df_resumo_num, matriz_corr, data_str)
 
     return bytes(pdf.output())
 
-
 def gerar_pdf_rebalanceamento(patrimonio_atual, capital, total_investido, caixa_residual, df_res_records, alocacoes_str, data_str):
     pdf = FPDF()
     pdf.add_page()
@@ -582,7 +761,6 @@ def gerar_pdf_rebalanceamento(patrimonio_atual, capital, total_investido, caixa_
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf("- Recomendacao: Manter o excedente em caixa / PRAB (0-1Y) e alocar em 2 a 3 tranchas temporais (30 a 90 dias)."), new_x='LMARGIN', new_y='NEXT')
 
     return bytes(pdf.output())
-
 
 def gerar_pdf_performance(df_lotes_records, resumo_etfs_records, custo_total, val_mercado_total, pnl_eur, pnl_pct, fonte_preco_str, data_str):
     pdf = FPDF()
@@ -662,7 +840,6 @@ def gerar_pdf_performance(df_lotes_records, resumo_etfs_records, custo_total, va
 
     return bytes(pdf.output())
 
-
 def gerar_pdf_saque(patrimonio_inicial, hicp, saque_teorico, saque_efetivo, ativo_venda, cotas_vendidas, tabela_records, data_str, justificativa_saque=None, protecao_info=None, fichas_ordens_xtb=None):
     pdf = FPDF()
     pdf.add_page()
@@ -708,6 +885,10 @@ def gerar_pdf_saque(patrimonio_inicial, hicp, saque_teorico, saque_efetivo, ativ
     return bytes(pdf.output())
 
 
+
+# =========================================================
+# FUNÇÕES DE SUPORTE FISCAL (IRS / IRPF - ABA 6)
+# =========================================================
 @st.cache_data(ttl=86400)
 def obter_taxa_cambio_historica(data_str, base='EUR', alvo='BRL'):
     """Obtém a taxa de câmbio histórica oficial do BCE (Frankfurter API) para uma data específica (DD/MM/YYYY ou YYYY-MM-DD)."""
@@ -739,7 +920,6 @@ def obter_taxa_cambio_historica(data_str, base='EUR', alvo='BRL'):
         pass
 
     return 6.12
-
 
 def sanitizar_df_vendas(df):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
@@ -805,7 +985,6 @@ def sanitizar_df_vendas(df):
 
     return df_out
 
-
 def obter_df_vendas_demo():
     return pd.DataFrame([
         {
@@ -819,7 +998,6 @@ def obter_df_vendas_demo():
             "Preço Compra (€)": 75.20, "Preço Venda (€)": 81.75, "Comissão (€)": 0.0
         }
     ])
-
 
 def gerar_pdf_fiscal(patrimonio_vendas_eur, total_lucro_eur, patrimonio_vendas_brl, total_lucro_brl, tabela_irs_records, tabela_irpf_records, data_str):
     pdf = FPDF()
@@ -858,7 +1036,7 @@ def gerar_pdf_fiscal(patrimonio_vendas_eur, total_lucro_eur, patrimonio_vendas_b
 
     return bytes(pdf.output())
 
-
+# FUNÇÕES DE CÂMBIO (ABA 5)
 @st.cache_data(ttl=14400)
 def obter_dados_cambio(base='EUR', alvo='BRL', inicio='2024-01-01'):
     domain_frankfurter = "api." + "frankfurter." + "dev"
@@ -880,7 +1058,6 @@ def obter_dados_cambio(base='EUR', alvo='BRL', inicio='2024-01-01'):
     df = pd.DataFrame({'rate': precos}, index=datas)
     return df
 
-
 def calcular_indicadores_cambio(df):
     df = df.copy()
     df['MA20'] = df['rate'].rolling(20).mean()
@@ -894,7 +1071,6 @@ def calcular_indicadores_cambio(df):
     df.loc[df['Z_Score'] <= -1.8, 'Sinal'] = 1
     df.loc[df['Z_Score'] >= 1.8, 'Sinal'] = -1
     return df
-
 
 def arima_projecao_cambio(df, dias=30):
     s = df['rate'].dropna()
@@ -921,7 +1097,6 @@ def arima_projecao_cambio(df, dias=30):
         'Upper_CI': ci_upper,
         'Trend': y_tend
     }, index=idx)
-
 
 def monte_carlo_cambio(s0, dias=30, n_sim=10000, m_compra=5.95, m_venda=6.20, ret=None):
     mu = ret.mean() if ret is not None else 0.00015
@@ -959,7 +1134,6 @@ def monte_carlo_cambio(s0, dias=30, n_sim=10000, m_compra=5.95, m_venda=6.20, re
         'prob_compra': prob_c,
         'tabela_prob': pd.DataFrame(tabela_prob)
     }
-
 
 def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_compra, m_venda, prob_c, prob_v, arima_30d, df_tb_records, df_resumo_num_cambio, data_str, sim_dados=None):
     pdf = FPDF()
@@ -1038,230 +1212,7 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
 
     return bytes(pdf.output())
 
-
-
-# =========================================================
-# FLUXO DE EXECUÇÃO DA BARRA LATERAL & INICIALIZAÇÃO
-# =========================================================
-
-st.sidebar.header("⚙ Configurações Gerais")
-periodo = st.sidebar.selectbox(
-    "Período Histórico (Gráficos ETFs):",
-    options=["1y", "2y", "5y", "10y", "max"],
-    index=2
-)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📈 Indicadores Técnicos (ETFs)")
-mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
-mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
-mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
-mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
-
-# Download e Inicialização da Carteira
-dados = carregar_dados_etfs(tickers_etf, periodo)
-
-if 'carteira_etfs' not in st.session_state:
-    st.session_state['carteira_etfs'] = padroes_pos_global.copy()
-    for sigla, info in st.session_state['carteira_etfs'].items():
-        tk = info["ticker"]
-        if not dados.empty and tk in dados.columns:
-            s_t = dados[tk].dropna()
-            if not s_t.empty:
-                p_live = float(s_t.iloc[-1])
-                info["p_compra"] = round(p_live, 2)
-                info["p_venda"] = round(p_live, 2)
-    sincronizar_chaves_carteira()
-
-if 'historico_compras' not in st.session_state:
-    st.session_state['historico_compras'] = sanitizar_df_historico(pd.DataFrame(columns=[
-        "ID Posição", "Data Compra", "ETF", "Sigla", "Volume (Cotas)", "Preço Abertura (€)", "Comissão (€)"
-    ]))
-    sincronizar_carteira_com_historico()
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🎯 Alocação Tática Dinâmica & Metas (TAA)")
-st.sidebar.caption("Defina percentuais flexíveis ou escolha um perfil tático pré-definido.")
-
-m_ibci_curr = float(st.session_state.get('carteira_etfs', {}).get('IBCI', {}).get('alvo', 0.45) * 100)
-m_xdeq_curr = float(st.session_state.get('carteira_etfs', {}).get('XDEQ', {}).get('alvo', 0.30) * 100)
-m_prab_curr = float(st.session_state.get('carteira_etfs', {}).get('PRAB', {}).get('alvo', 0.25) * 100)
-
-col_taa1, col_taa2, col_taa3 = st.sidebar.columns(3)
-with col_taa1:
-    in_m_ibci = st.number_input("IBCI (%)", min_value=0.0, max_value=100.0, value=m_ibci_curr, step=1.0, key="in_taa_ibci")
-with col_taa2:
-    in_m_xdeq = st.number_input("XDEQ (%)", min_value=0.0, max_value=100.0, value=m_xdeq_curr, step=1.0, key="in_taa_xdeq")
-with col_taa3:
-    in_m_prab = st.number_input("PRAB (%)", min_value=0.0, max_value=100.0, value=m_prab_curr, step=1.0, key="in_taa_prab")
-
-soma_m = in_m_ibci + in_m_xdeq + in_m_prab
-if abs(soma_m - 100.0) < 0.01:
-    st.sidebar.success("🟢 Soma das Metas: 100%")
-    if 'carteira_etfs' in st.session_state:
-        st.session_state['carteira_etfs']['IBCI']['alvo'] = in_m_ibci / 100.0
-        st.session_state['carteira_etfs']['IBCI']['teto'] = (in_m_ibci + 5.0) / 100.0
-        st.session_state['carteira_etfs']['XDEQ']['alvo'] = in_m_xdeq / 100.0
-        st.session_state['carteira_etfs']['XDEQ']['teto'] = (in_m_xdeq + 5.0) / 100.0
-        st.session_state['carteira_etfs']['PRAB']['alvo'] = in_m_prab / 100.0
-        st.session_state['carteira_etfs']['PRAB']['teto'] = (in_m_prab + 5.0) / 100.0
-else:
-    st.sidebar.warning(f"⚠️ Total das metas: {soma_m:.1f}% (deve ser 100%)")
-
-st.sidebar.markdown("**⚡ Perfis Táticos Pré-Definidos:**")
-col_p1, col_p2, col_p3 = st.sidebar.columns(3)
-if col_p1.button("🛡️ Defensivo", help="50% IBCI / 25% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_def"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.50
-    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.55
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.30
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
-    st.session_state['in_taa_ibci'] = 50.0
-    st.session_state['in_taa_xdeq'] = 25.0
-    st.session_state['in_taa_prab'] = 25.0
-    sincronizar_chaves_carteira()
-    st.rerun()
-
-if col_p2.button("⚖️ Equilibrado", help="45% IBCI / 30% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_eq"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.45
-    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.50
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.30
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.35
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
-    st.session_state['in_taa_ibci'] = 45.0
-    st.session_state['in_taa_xdeq'] = 30.0
-    st.session_state['in_taa_prab'] = 25.0
-    sincronizar_chaves_carteira()
-    st.rerun()
-
-if col_p3.button("🚀 Expansão", help="35% IBCI / 40% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_exp"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.35
-    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.40
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.40
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.45
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
-    st.session_state['in_taa_ibci'] = 35.0
-    st.session_state['in_taa_xdeq'] = 40.0
-    st.session_state['in_taa_prab'] = 25.0
-    sincronizar_chaves_carteira()
-    st.rerun()
-
-# Motor de Diagnóstico Inteligente (Smart TAA)
-try:
-    hicp_v = float(obter_hicp_oficial_eurostat())
-except Exception:
-    hicp_v = 2.1
-
-m50_x, m200_x, rsi_x = 0.0, 0.0, 50.0
-if 'dados' in globals() and isinstance(dados, pd.DataFrame) and not dados.empty:
-    if 'XDEQ.DE' in dados.columns:
-        s_x = dados['XDEQ.DE'].dropna()
-        if len(s_x) >= 50:
-            m50_x = float(s_x.tail(50).mean())
-            m200_x = float(s_x.tail(200).mean()) if len(s_x) >= 200 else m50_x
-            d_x = s_x.diff()
-            g_x = float(d_x.where(d_x > 0, 0).tail(14).mean())
-            l_x = float((-d_x.where(d_x < 0, 0)).tail(14).mean())
-            rsi_x = 100 - (100 / (1 + (g_x / l_x))) if l_x > 0 else 50.0
-
-if hicp_v > 3.5 or (m50_x < m200_x and m50_x > 0):
-    rec_prof_name = "Defensivo"
-    rec_i, rec_x, rec_p = 50.0, 25.0, 25.0
-    rec_icon = "🛡️"
-    rec_motivo = f"Inflação HICP elevada ({fmt_br(hicp_v, 1, suffix='%')}) ou XDEQ em tendência de baixa."
-elif hicp_v < 3.0 and m50_x > m200_x and rsi_x > 50:
-    rec_prof_name = "Expansão"
-    rec_i, rec_x, rec_p = 35.0, 40.0, 25.0
-    rec_icon = "🚀"
-    rec_motivo = f"Inflação HICP controlada ({fmt_br(hicp_v, 1, suffix='%')}) e XDEQ em alta técnica."
-else:
-    rec_prof_name = "Equilibrado"
-    rec_i, rec_x, rec_p = 45.0, 30.0, 25.0
-    rec_icon = "⚖️"
-    rec_motivo = f"Cenário macroeconómico e técnico equilibrado (HICP: {fmt_br(hicp_v, 1, suffix='%')})."
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("**💡 Diagnóstico Inteligente (Smart TAA):**")
-st.sidebar.info(f"**Sugestão Tática:** {rec_icon} **{rec_prof_name}** ({int(rec_i)}% IBCI / {int(rec_x)}% XDEQ / {int(rec_p)}% PRAB)\n\n*Motivo:* {rec_motivo}")
-if st.sidebar.button(f"⚡ Aplicar Sugestão ({rec_prof_name})", use_container_width=True, key="btn_apply_smart_taa"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = rec_i / 100.0
-    st.session_state['carteira_etfs']['IBCI']['teto'] = (rec_i + 5.0) / 100.0
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = rec_x / 100.0
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = (rec_x + 5.0) / 100.0
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = rec_p / 100.0
-    st.session_state['carteira_etfs']['PRAB']['teto'] = (rec_p + 5.0) / 100.0
-    st.session_state['in_taa_ibci'] = rec_i
-    st.session_state['in_taa_xdeq'] = rec_x
-    st.session_state['in_taa_prab'] = rec_p
-    sincronizar_chaves_carteira()
-    st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔒 Gestão de Dados & Privacidade (GitHub)")
-st.sidebar.caption("Os dados pessoais permanecem apenas na memória temporária da sua sessão.")
-
-with st.sidebar.expander("📂 Importar / Exportar Planilha Excel (.xlsx)", expanded=False):
-    st.markdown("**1. Importar Planilha de Carteira (.xlsx)**")
-    file_upload = st.file_uploader(
-        "Carregar ficheiro Excel com Historico_Lotes e Carteira_Geral:",
-        type=["xlsx"],
-        key="uploader_excel_sidebar"
-    )
-    if file_upload is not None:
-        if st.button("📥 Processar Importação Excel", use_container_width=True, key="btn_imp_excel_sidebar"):
-            sucesso_imp, msg_imp = processar_importacao_excel(file_upload.getvalue())
-            if sucesso_imp:
-                st.success(msg_imp)
-                st.rerun()
-            else:
-                st.error(msg_imp)
-
-    st.markdown("---")
-    st.markdown("**2. Exportar Dados Atuais para Excel**")
-    excel_bytes_export = exportar_carteira_excel_full(
-        st.session_state.get('historico_compras'),
-        st.session_state.get('carteira_etfs', {}), st.session_state.get('historico_vendas')
-    )
-    st.download_button(
-        label="📤 Exportar Carteira em Excel (.xlsx)",
-        data=excel_bytes_export,
-        file_name=f"Carteira_ETFs_XTB_{datetime.now().strftime('%Y%m%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        key="btn_exp_excel_sidebar"
-    )
-
-    st.markdown("---")
-    st.markdown("**3. Modelo / Template em Branco**")
-    model_bytes = gerar_modelo_excel()
-    st.download_button(
-        label="📄 Descarregar Planilha Modelo (.xlsx)",
-        data=model_bytes,
-        file_name="Modelo_Carteira_ETFs_XTB.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        key="btn_model_excel_sidebar"
-    )
-
-st.sidebar.markdown("**Sincronização das Abas:**")
-if st.sidebar.button("🔄 Sincronizar Cotas (Histórico -> Carteira)", use_container_width=True, key="btn_sync_sidebar"):
-    sincronizar_carteira_com_historico()
-    st.success("🟢 Cotas sincronizadas com sucesso!")
-    st.rerun()
-
-st.sidebar.markdown("**Limpeza de Dados Pessoais (Reset de Segurança):**")
-if st.sidebar.button("🗑️ Limpar Todos os Dados da Sessão", use_container_width=True, key="btn_reset_sidebar"):
-    limpar_dados_sessao()
-    st.success("🟢 Sessão limpa com sucesso!")
-    st.rerun()
-
-GMAIL_USER = st.secrets.get("GMAIL_USER", os.getenv("GMAIL_USER", ""))
-GMAIL_PASS = st.secrets.get("GMAIL_PASS", os.getenv("GMAIL_PASS", ""))
-APP_DOMAIN = st.secrets.get("APP_DOMAIN", os.getenv("APP_DOMAIN", "etf-xtb-alerta.streamlit.app"))
-app_domain = APP_DOMAIN
+# SEPARADORES PRINCIPAIS (SEQUÊNCIA EXATA SOLICITADA)
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Análise Técnica & Relatório (ETFs)",
     "📊 Rendimentos & Performance de Aportes",
