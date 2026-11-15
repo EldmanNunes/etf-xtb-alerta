@@ -131,140 +131,6 @@ def sincronizar_chaves_carteira():
                 pass
 
 
-# Sidebar - Configurações Gerais
-st.sidebar.header("⚙ Configurações Gerais")
-periodo = st.sidebar.selectbox(
-    "Período Histórico (Gráficos ETFs):",
-    options=["1y", "2y", "5y", "10y", "max"],
-    index=2
-)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📈 Indicadores Técnicos (ETFs)")
-mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
-mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
-mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
-mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🎯 Alocação Tática Dinâmica & Metas (TAA)")
-st.sidebar.caption("Defina percentuais flexíveis ou escolha um perfil tático pré-definido.")
-
-m_ibci_curr = float(st.session_state.get('carteira_etfs', {}).get('IBCI', {}).get('alvo', 0.45) * 100)
-m_xdeq_curr = float(st.session_state.get('carteira_etfs', {}).get('XDEQ', {}).get('alvo', 0.30) * 100)
-m_prab_curr = float(st.session_state.get('carteira_etfs', {}).get('PRAB', {}).get('alvo', 0.25) * 100)
-
-col_taa1, col_taa2, col_taa3 = st.sidebar.columns(3)
-with col_taa1:
-    in_m_ibci = st.number_input("IBCI (%)", min_value=0.0, max_value=100.0, value=m_ibci_curr, step=1.0, key="in_taa_ibci")
-with col_taa2:
-    in_m_xdeq = st.number_input("XDEQ (%)", min_value=0.0, max_value=100.0, value=m_xdeq_curr, step=1.0, key="in_taa_xdeq")
-with col_taa3:
-    in_m_prab = st.number_input("PRAB (%)", min_value=0.0, max_value=100.0, value=m_prab_curr, step=1.0, key="in_taa_prab")
-
-soma_m = in_m_ibci + in_m_xdeq + in_m_prab
-if abs(soma_m - 100.0) < 0.01:
-    st.sidebar.success("🟢 Soma das Metas: 100%")
-    if 'carteira_etfs' in st.session_state:
-        st.session_state['carteira_etfs']['IBCI']['alvo'] = in_m_ibci / 100.0
-        st.session_state['carteira_etfs']['IBCI']['teto'] = (in_m_ibci + 5.0) / 100.0
-        st.session_state['carteira_etfs']['XDEQ']['alvo'] = in_m_xdeq / 100.0
-        st.session_state['carteira_etfs']['XDEQ']['teto'] = (in_m_xdeq + 5.0) / 100.0
-        st.session_state['carteira_etfs']['PRAB']['alvo'] = in_m_prab / 100.0
-        st.session_state['carteira_etfs']['PRAB']['teto'] = (in_m_prab + 5.0) / 100.0
-else:
-    st.sidebar.warning(f"⚠️ Total das metas: {soma_m:.1f}% (deve ser 100%)")
-
-st.sidebar.markdown("**⚡ Perfis Táticos Pré-Definidos:**")
-col_p1, col_p2, col_p3 = st.sidebar.columns(3)
-if col_p1.button("🛡️ Defensivo", help="50% IBCI / 25% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_def"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.50
-    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.55
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.30
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
-    st.session_state['in_taa_ibci'] = 50.0
-    st.session_state['in_taa_xdeq'] = 25.0
-    st.session_state['in_taa_prab'] = 25.0
-    sincronizar_chaves_carteira()
-    st.rerun()
-
-if col_p2.button("⚖️ Equilibrado", help="45% IBCI / 30% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_eq"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.45
-    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.50
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.30
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.35
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
-    st.session_state['in_taa_ibci'] = 45.0
-    st.session_state['in_taa_xdeq'] = 30.0
-    st.session_state['in_taa_prab'] = 25.0
-    sincronizar_chaves_carteira()
-    st.rerun()
-
-if col_p3.button("🚀 Expansão", help="35% IBCI / 40% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_exp"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.35
-    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.40
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.40
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.45
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
-    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
-    st.session_state['in_taa_ibci'] = 35.0
-    st.session_state['in_taa_xdeq'] = 40.0
-    st.session_state['in_taa_prab'] = 25.0
-    sincronizar_chaves_carteira()
-    st.rerun()
-# Motor de Diagnóstico Inteligente (Smart TAA)
-try:
-    hicp_v = float(obter_hicp_oficial_eurostat())
-except Exception:
-    hicp_v = 2.1
-
-m50_x, m200_x, rsi_x = 0.0, 0.0, 50.0
-if 'dados' in globals() and isinstance(dados, pd.DataFrame) and not dados.empty:
-    if 'XDEQ.DE' in dados.columns:
-        s_x = dados['XDEQ.DE'].dropna()
-        if len(s_x) >= 50:
-            m50_x = float(s_x.tail(50).mean())
-            m200_x = float(s_x.tail(200).mean()) if len(s_x) >= 200 else m50_x
-            d_x = s_x.diff()
-            g_x = float(d_x.where(d_x > 0, 0).tail(14).mean())
-            l_x = float((-d_x.where(d_x < 0, 0)).tail(14).mean())
-            rsi_x = 100 - (100 / (1 + (g_x / l_x))) if l_x > 0 else 50.0
-
-if hicp_v > 3.5 or (m50_x < m200_x and m50_x > 0):
-    rec_prof_name = "Defensivo"
-    rec_i, rec_x, rec_p = 50.0, 25.0, 25.0
-    rec_icon = "🛡️"
-    rec_motivo = f"Inflação HICP elevada ({fmt_br(hicp_v, 1, suffix='%')}) ou XDEQ em tendência de baixa."
-elif hicp_v < 3.0 and m50_x > m200_x and rsi_x > 50:
-    rec_prof_name = "Expansão"
-    rec_i, rec_x, rec_p = 35.0, 40.0, 25.0
-    rec_icon = "🚀"
-    rec_motivo = f"Inflação HICP controlada ({fmt_br(hicp_v, 1, suffix='%')}) e XDEQ em alta técnica."
-else:
-    rec_prof_name = "Equilibrado"
-    rec_i, rec_x, rec_p = 45.0, 30.0, 25.0
-    rec_icon = "⚖️"
-    rec_motivo = f"Cenário macroeconómico e técnico equilibrado (HICP: {fmt_br(hicp_v, 1, suffix='%')})."
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("**💡 Diagnóstico Inteligente (Smart TAA):**")
-st.sidebar.info(f"**Sugestão Tática:** {rec_icon} **{rec_prof_name}** ({int(rec_i)}% IBCI / {int(rec_x)}% XDEQ / {int(rec_p)}% PRAB)\n\n*Motivo:* {rec_motivo}")
-if st.sidebar.button(f"⚡ Aplicar Sugestão ({rec_prof_name})", use_container_width=True, key="btn_apply_smart_taa"):
-    st.session_state['carteira_etfs']['IBCI']['alvo'] = rec_i / 100.0
-    st.session_state['carteira_etfs']['IBCI']['teto'] = (rec_i + 5.0) / 100.0
-    st.session_state['carteira_etfs']['XDEQ']['alvo'] = rec_x / 100.0
-    st.session_state['carteira_etfs']['XDEQ']['teto'] = (rec_x + 5.0) / 100.0
-    st.session_state['carteira_etfs']['PRAB']['alvo'] = rec_p / 100.0
-    st.session_state['carteira_etfs']['PRAB']['teto'] = (rec_p + 5.0) / 100.0
-    st.session_state['in_taa_ibci'] = rec_i
-    st.session_state['in_taa_xdeq'] = rec_x
-    st.session_state['in_taa_prab'] = rec_p
-    sincronizar_chaves_carteira()
-    st.rerun()
-
 
 
 # Cache de Download de Dados de ETFs
@@ -1257,6 +1123,166 @@ def gerar_pdf_cambio(base_m, alvo_m, s0, s_compra, s_venda, z_score, diag, m_com
         pdf.multi_cell(pdf.epw, 5, sanitizar_pdf(f"- Lotes 2 e 3 (70% Ordens Limite em Recuos): {base_m} {fmt_br(sim_dados['lotes23_base'], 2)} -> {alvo_m} {fmt_br(sim_dados['lotes23_efetivo_alvo'], 2)}"), new_x='LMARGIN', new_y='NEXT')
 
     return bytes(pdf.output())
+
+
+
+# Sidebar - Configurações Gerais
+st.sidebar.header("⚙ Configurações Gerais")
+periodo = st.sidebar.selectbox(
+    "Período Histórico (Gráficos ETFs):",
+    options=["1y", "2y", "5y", "10y", "max"],
+    index=2
+)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📈 Indicadores Técnicos (ETFs)")
+mostrar_ma = st.sidebar.checkbox("Médias Móveis (MA50 / MA200)", value=True)
+mostrar_bb = st.sidebar.checkbox("Bandas de Bollinger (20, 2)", value=True)
+mostrar_rsi = st.sidebar.checkbox("RSI (14)", value=True)
+mostrar_macd = st.sidebar.checkbox("MACD (12, 26, 9)", value=True)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Alocação Tática Dinâmica & Metas (TAA)")
+st.sidebar.caption("Defina percentuais flexíveis ou escolha um perfil tático pré-definido.")
+
+m_ibci_curr = float(st.session_state.get('carteira_etfs', {}).get('IBCI', {}).get('alvo', 0.45) * 100)
+m_xdeq_curr = float(st.session_state.get('carteira_etfs', {}).get('XDEQ', {}).get('alvo', 0.30) * 100)
+m_prab_curr = float(st.session_state.get('carteira_etfs', {}).get('PRAB', {}).get('alvo', 0.25) * 100)
+
+col_taa1, col_taa2, col_taa3 = st.sidebar.columns(3)
+with col_taa1:
+    in_m_ibci = st.number_input("IBCI (%)", min_value=0.0, max_value=100.0, value=m_ibci_curr, step=1.0, key="in_taa_ibci")
+with col_taa2:
+    in_m_xdeq = st.number_input("XDEQ (%)", min_value=0.0, max_value=100.0, value=m_xdeq_curr, step=1.0, key="in_taa_xdeq")
+with col_taa3:
+    in_m_prab = st.number_input("PRAB (%)", min_value=0.0, max_value=100.0, value=m_prab_curr, step=1.0, key="in_taa_prab")
+
+soma_m = in_m_ibci + in_m_xdeq + in_m_prab
+if abs(soma_m - 100.0) < 0.01:
+    st.sidebar.success("🟢 Soma das Metas: 100%")
+    if 'carteira_etfs' in st.session_state:
+        st.session_state['carteira_etfs']['IBCI']['alvo'] = in_m_ibci / 100.0
+        st.session_state['carteira_etfs']['IBCI']['teto'] = (in_m_ibci + 5.0) / 100.0
+        st.session_state['carteira_etfs']['XDEQ']['alvo'] = in_m_xdeq / 100.0
+        st.session_state['carteira_etfs']['XDEQ']['teto'] = (in_m_xdeq + 5.0) / 100.0
+        st.session_state['carteira_etfs']['PRAB']['alvo'] = in_m_prab / 100.0
+        st.session_state['carteira_etfs']['PRAB']['teto'] = (in_m_prab + 5.0) / 100.0
+else:
+    st.sidebar.warning(f"⚠️ Total das metas: {soma_m:.1f}% (deve ser 100%)")
+
+st.sidebar.markdown("**⚡ Perfis Táticos Pré-Definidos:**")
+col_p1, col_p2, col_p3 = st.sidebar.columns(3)
+if col_p1.button("🛡️ Defensivo", help="50% IBCI / 25% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_def"):
+    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.50
+    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.55
+    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.25
+    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.30
+    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
+    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
+    st.session_state['in_taa_ibci'] = 50.0
+    st.session_state['in_taa_xdeq'] = 25.0
+    st.session_state['in_taa_prab'] = 25.0
+    sincronizar_chaves_carteira()
+    st.rerun()
+
+if col_p2.button("⚖️ Equilibrado", help="45% IBCI / 30% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_eq"):
+    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.45
+    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.50
+    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.30
+    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.35
+    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
+    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
+    st.session_state['in_taa_ibci'] = 45.0
+    st.session_state['in_taa_xdeq'] = 30.0
+    st.session_state['in_taa_prab'] = 25.0
+    sincronizar_chaves_carteira()
+    st.rerun()
+
+if col_p3.button("🚀 Expansão", help="35% IBCI / 40% XDEQ / 25% PRAB", use_container_width=True, key="btn_prof_exp"):
+    st.session_state['carteira_etfs']['IBCI']['alvo'] = 0.35
+    st.session_state['carteira_etfs']['IBCI']['teto'] = 0.40
+    st.session_state['carteira_etfs']['XDEQ']['alvo'] = 0.40
+    st.session_state['carteira_etfs']['XDEQ']['teto'] = 0.45
+    st.session_state['carteira_etfs']['PRAB']['alvo'] = 0.25
+    st.session_state['carteira_etfs']['PRAB']['teto'] = 0.30
+    st.session_state['in_taa_ibci'] = 35.0
+    st.session_state['in_taa_xdeq'] = 40.0
+
+
+
+# Cache e Carregamento de Dados ao Vivo dos ETFs
+tickers_etf = [meta["ticker"] for meta in ETF_MAP.values()]
+dados = carregar_dados_etfs(tickers_etf, periodo)
+
+if 'carteira_etfs' not in st.session_state:
+    st.session_state['carteira_etfs'] = padroes_pos_global.copy()
+    for sigla, info in st.session_state['carteira_etfs'].items():
+        tk = info["ticker"]
+        if not dados.empty and tk in dados.columns:
+            s_t = dados[tk].dropna()
+            if not s_t.empty:
+                p_live = float(s_t.iloc[-1])
+                st.session_state['carteira_etfs'][sigla]['p_compra'] = round(p_live, 2)
+                st.session_state['carteira_etfs'][sigla]['p_venda'] = round(p_live, 2)
+    sincronizar_chaves_carteira()
+
+
+    st.session_state['in_taa_prab'] = 25.0
+    sincronizar_chaves_carteira()
+    st.rerun()
+# Motor de Diagnóstico Inteligente (Smart TAA)
+try:
+    hicp_v = float(obter_hicp_oficial_eurostat())
+except Exception:
+    hicp_v = 2.1
+
+m50_x, m200_x, rsi_x = 0.0, 0.0, 50.0
+if 'dados' in globals() and isinstance(dados, pd.DataFrame) and not dados.empty:
+    if 'XDEQ.DE' in dados.columns:
+        s_x = dados['XDEQ.DE'].dropna()
+        if len(s_x) >= 50:
+            m50_x = float(s_x.tail(50).mean())
+            m200_x = float(s_x.tail(200).mean()) if len(s_x) >= 200 else m50_x
+            d_x = s_x.diff()
+            g_x = float(d_x.where(d_x > 0, 0).tail(14).mean())
+            l_x = float((-d_x.where(d_x < 0, 0)).tail(14).mean())
+            rsi_x = 100 - (100 / (1 + (g_x / l_x))) if l_x > 0 else 50.0
+
+if hicp_v > 3.5 or (m50_x < m200_x and m50_x > 0):
+    rec_prof_name = "Defensivo"
+    rec_i, rec_x, rec_p = 50.0, 25.0, 25.0
+    rec_icon = "🛡️"
+    rec_motivo = f"Inflação HICP elevada ({fmt_br(hicp_v, 1, suffix='%')}) ou XDEQ em tendência de baixa."
+elif hicp_v < 3.0 and m50_x > m200_x and rsi_x > 50:
+    rec_prof_name = "Expansão"
+    rec_i, rec_x, rec_p = 35.0, 40.0, 25.0
+    rec_icon = "🚀"
+    rec_motivo = f"Inflação HICP controlada ({fmt_br(hicp_v, 1, suffix='%')}) e XDEQ em alta técnica."
+else:
+    rec_prof_name = "Equilibrado"
+    rec_i, rec_x, rec_p = 45.0, 30.0, 25.0
+    rec_icon = "⚖️"
+    rec_motivo = f"Cenário macroeconómico e técnico equilibrado (HICP: {fmt_br(hicp_v, 1, suffix='%')})."
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**💡 Diagnóstico Inteligente (Smart TAA):**")
+st.sidebar.info(f"**Sugestão Tática:** {rec_icon} **{rec_prof_name}** ({int(rec_i)}% IBCI / {int(rec_x)}% XDEQ / {int(rec_p)}% PRAB)\n\n*Motivo:* {rec_motivo}")
+if st.sidebar.button(f"⚡ Aplicar Sugestão ({rec_prof_name})", use_container_width=True, key="btn_apply_smart_taa"):
+    st.session_state['carteira_etfs']['IBCI']['alvo'] = rec_i / 100.0
+    st.session_state['carteira_etfs']['IBCI']['teto'] = (rec_i + 5.0) / 100.0
+    st.session_state['carteira_etfs']['XDEQ']['alvo'] = rec_x / 100.0
+    st.session_state['carteira_etfs']['XDEQ']['teto'] = (rec_x + 5.0) / 100.0
+    st.session_state['carteira_etfs']['PRAB']['alvo'] = rec_p / 100.0
+    st.session_state['carteira_etfs']['PRAB']['teto'] = (rec_p + 5.0) / 100.0
+    st.session_state['in_taa_ibci'] = rec_i
+    st.session_state['in_taa_xdeq'] = rec_x
+    st.session_state['in_taa_prab'] = rec_p
+    sincronizar_chaves_carteira()
+    st.rerun()
+
+
+
+
 
 # SEPARADORES PRINCIPAIS (SEQUÊNCIA EXATA SOLICITADA)
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
