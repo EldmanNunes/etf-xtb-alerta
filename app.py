@@ -3253,6 +3253,15 @@ with tab6:
         indices_aplicados = set(
             (auditoria_lotes.loc[auditoria_lotes["Estado"] == "Aplicada", "Linha Venda"] - 1).tolist()
         )
+        
+        # Modifiquei aqui
+        st.write("INDICES DF_V_PROC")
+        st.write(df_v_proc.index.tolist())
+
+        st.write("INDICES APLICADOS")
+        st.write(list(indices_aplicados))
+        # Terminei a alteração aqui
+        
         df_v_proc = df_v_proc.loc[df_v_proc.index.isin(indices_aplicados)].copy()
 
     if not df_v_proc.empty:
